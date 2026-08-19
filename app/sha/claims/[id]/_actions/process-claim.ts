@@ -12,12 +12,6 @@ interface ProcessClaimInput {
   claimId: string
 }
 
-const nextStatus: Record<string, string> = {
-  RECEIVED: "VALIDATING",
-  VALIDATING: "ANALYZING",
-  ANALYZING: "ASSESSED",
-}
-
 export async function processClaim(input: ProcessClaimInput) {
   const user = await requireRole(["SHA_OFFICER", "ADMIN"])
 
@@ -35,18 +29,25 @@ export async function processClaim(input: ProcessClaimInput) {
     return { success: false, error: "Claim not found" }
   }
 
-  if (claim.status === "CLEARED" || claim.status === "FLAGGED" || claim.status === "UNDER_REVIEW") {
+  if (
+    claim.status === "CLEARED" ||
+    claim.status === "FLAGGED" ||
+    claim.status === "UNDER_REVIEW"
+  ) {
     return { success: false, error: "Claim already completed processing" }
   }
 
-  const next = nextStatus[claim.status]
-  if (!next) {
-    return { success: false, error: `Cannot advance from status: ${claim.status}` }
+  if (claim.status !== "RECEIVED") {
+    return {
+      success: false,
+      error: `Cannot process claim in status: ${claim.status}`,
+    }
   }
 
+  // ─── Step 1: VALIDATING — Compliance rules ────
   await db.claim.update({
     where: { id: input.claimId },
-    data: { status: next as "VALIDATING" | "ANALYZING" | "ASSESSED" },
+    data: { status: "VALIDATING" },
   })
 
   await db.auditLog.create({
@@ -55,104 +56,131 @@ export async function processClaim(input: ProcessClaimInput) {
       action: "CLAIM_STATUS_CHANGED",
       entityType: "Claim",
       entityId: input.claimId,
+      metadata: { previousStatus: "RECEIVED", newStatus: "VALIDATING" },
+    },
+  })
+
+  await evaluateClaimRules(input.claimId)
+
+  await db.auditLog.create({
+    data: {
+      userId: user.id,
+      action: "RULES_EVALUATED",
+      entityType: "Claim",
+      entityId: input.claimId,
+    },
+  })
+
+  // ─── Step 2: ANALYZING — AI analysis ────
+  await db.claim.update({
+    where: { id: input.claimId },
+    data: { status: "ANALYZING" },
+  })
+
+  await db.auditLog.create({
+    data: {
+      userId: user.id,
+      action: "CLAIM_STATUS_CHANGED",
+      entityType: "Claim",
+      entityId: input.claimId,
+      metadata: { previousStatus: "VALIDATING", newStatus: "ANALYZING" },
+    },
+  })
+
+  let aiAnalysisOk = true
+  try {
+    await analyzeClaim(input.claimId)
+
+    await db.auditLog.create({
+      data: {
+        userId: user.id,
+        action: "AI_ANALYSIS_COMPLETED",
+        entityType: "Claim",
+        entityId: input.claimId,
+      },
+    })
+  } catch (error) {
+    aiAnalysisOk = false
+    console.error("AI analysis failed:", error)
+    await db.auditLog.create({
+      data: {
+        userId: user.id,
+        action: "AI_ANALYSIS_FAILED",
+        entityType: "Claim",
+        entityId: input.claimId,
+        metadata: {
+          error: error instanceof Error ? error.message : "Unknown error",
+        },
+      },
+    })
+  }
+
+  // ─── Step 3: ASSESSED — Risk score ────
+  await db.claim.update({
+    where: { id: input.claimId },
+    data: { status: "ASSESSED" },
+  })
+
+  await db.auditLog.create({
+    data: {
+      userId: user.id,
+      action: "CLAIM_STATUS_CHANGED",
+      entityType: "Claim",
+      entityId: input.claimId,
+      metadata: { previousStatus: "ANALYZING", newStatus: "ASSESSED" },
+    },
+  })
+
+  const { totalScore, level } = await calculateRiskScore(input.claimId)
+
+  const shouldFlag = totalScore >= 50 || level === "HIGH" || level === "CRITICAL"
+  const finalStatus = shouldFlag ? "FLAGGED" : "CLEARED"
+
+  await db.claim.update({
+    where: { id: input.claimId },
+    data: { status: finalStatus as "FLAGGED" | "CLEARED" },
+  })
+
+  await db.auditLog.create({
+    data: {
+      userId: user.id,
+      action: "RISK_ASSESSED",
+      entityType: "Claim",
+      entityId: input.claimId,
       metadata: {
-        previousStatus: claim.status,
-        newStatus: next,
+        riskScore: totalScore,
+        riskLevel: level,
+        finalStatus,
+        aiAnalysisOk,
       },
     },
   })
 
-  if (next === "VALIDATING") {
-    await evaluateClaimRules(input.claimId)
+  if (shouldFlag) {
+    await generateAlerts(input.claimId)
 
     await db.auditLog.create({
       data: {
         userId: user.id,
-        action: "RULES_EVALUATED",
+        action: "ALERTS_GENERATED",
         entityType: "Claim",
         entityId: input.claimId,
       },
     })
-  }
-
-  if (next === "ANALYZING") {
-    try {
-      await analyzeClaim(input.claimId)
-
-      await db.auditLog.create({
-        data: {
-          userId: user.id,
-          action: "AI_ANALYSIS_COMPLETED",
-          entityType: "Claim",
-          entityId: input.claimId,
-        },
-      })
-    } catch (error) {
-      console.error("AI analysis failed:", error)
-      await db.auditLog.create({
-        data: {
-          userId: user.id,
-          action: "AI_ANALYSIS_FAILED",
-          entityType: "Claim",
-          entityId: input.claimId,
-          metadata: {
-            error: error instanceof Error ? error.message : "Unknown error",
-          },
-        },
-      })
-    }
-  }
-
-  if (next === "ASSESSED") {
-    const { totalScore, level } = await calculateRiskScore(input.claimId)
-
-    const shouldFlag = totalScore >= 50 || level === "HIGH" || level === "CRITICAL"
-    const finalStatus = shouldFlag ? "FLAGGED" : "CLEARED"
-
-    await db.claim.update({
-      where: { id: input.claimId },
-      data: { status: finalStatus as "FLAGGED" | "CLEARED" },
-    })
-
-    await db.auditLog.create({
-      data: {
-        userId: user.id,
-        action: "RISK_ASSESSED",
-        entityType: "Claim",
-        entityId: input.claimId,
-        metadata: {
-          riskScore: totalScore,
-          riskLevel: level,
-          finalStatus,
-        },
-      },
-    })
-
-    if (shouldFlag) {
-      await generateAlerts(input.claimId)
-
-      await db.auditLog.create({
-        data: {
-          userId: user.id,
-          action: "ALERTS_GENERATED",
-          entityType: "Claim",
-          entityId: input.claimId,
-        },
-      })
-    }
-
-    revalidatePath(`/sha/claims/${input.claimId}`)
-    revalidatePath("/sha/claims")
-    revalidatePath("/sha/alerts")
-    revalidatePath("/sha")
-    revalidatePath(`/hospital/claims/${input.claimId}`)
-    revalidatePath("/hospital/claims")
-
-    return { success: true, newStatus: finalStatus, riskScore: totalScore, riskLevel: level }
   }
 
   revalidatePath(`/sha/claims/${input.claimId}`)
   revalidatePath("/sha/claims")
+  revalidatePath("/sha/alerts")
+  revalidatePath("/sha")
+  revalidatePath(`/hospital/claims/${input.claimId}`)
+  revalidatePath("/hospital/claims")
 
-  return { success: true, newStatus: next }
+  return {
+    success: true,
+    newStatus: finalStatus,
+    riskScore: totalScore,
+    riskLevel: level,
+    aiAnalysisOk,
+  }
 }

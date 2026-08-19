@@ -89,11 +89,7 @@ export function ProcessingTimeline({
           disabled={isPending}
           className="inline-flex h-9 w-full items-center justify-center rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90 disabled:pointer-events-none disabled:opacity-50"
         >
-          {isPending
-            ? "Processing..."
-            : currentStatus === "RECEIVED"
-              ? "Start Processing"
-              : "Advance Processing"}
+          {isPending ? "Processing claim..." : "Process Claim"}
         </button>
       ) : null}
     </div>
