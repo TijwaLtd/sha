@@ -118,15 +118,14 @@ function evaluateRule(
     }
 
     case "R-004": {
-      const avgAmount = 250000
-      const threshold = avgAmount * 3
+      const threshold = 75000000
       const triggered = claim.totalAmountCents > threshold
       return {
         triggered,
         details: {
           claimAmount: claim.totalAmountCents,
-          averageAmount: avgAmount,
           threshold,
+          thresholdKES: "750,000",
         },
       }
     }

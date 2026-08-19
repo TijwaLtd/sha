@@ -136,8 +136,9 @@ const hospitals: HospitalTestGroup[] = [
         name: "Unusual quantity",
         diagnosis: "Repeat lab work-up",
         items: [{ service: "CBC", qty: 12, amountKes: 500 }],
-        expected: "R-005 triggers (qty > 10) - FLAGGED",
+        expected: "R-005 triggers (qty > 10) - CLEARED (score 10)",
         severity: "warning",
+        note: "Single rule score below flag threshold",
       },
       {
         name: "Service mismatch",
@@ -192,9 +193,9 @@ const hospitals: HospitalTestGroup[] = [
           { service: "ICU", qty: 12, amountKes: 15000 },
           { service: "SURGERY_MAJOR", qty: 1, amountKes: 200000 },
         ],
-        expected: "R-004 + R-005 trigger - FLAGGED",
-        severity: "danger",
-        note: "Total exceeds KES 750,000 and ICU days exceed 10",
+        expected: "R-004 + R-005 trigger - CLEARED (score 25)",
+        severity: "warning",
+        note: "Total exceeds KES 750,000 but combined score below flag threshold",
       },
     ],
   },
@@ -214,9 +215,9 @@ const hospitals: HospitalTestGroup[] = [
           { service: "SURGERY_MAJOR", qty: 2, amountKes: 400000 },
           { service: "ICU", qty: 20, amountKes: 15000 },
         ],
-        expected: "R-004 + R-005 trigger - CRITICAL",
-        severity: "danger",
-        note: "Total exceeds KES 1,000,000",
+        expected: "R-004 + R-005 trigger - CLEARED (score 25)",
+        severity: "warning",
+        note: "Total exceeds KES 1,000,000 but combined score below flag threshold",
       },
     ],
   },
@@ -286,8 +287,9 @@ const hospitals: HospitalTestGroup[] = [
         name: "Unusual quantity",
         diagnosis: "Severe malaria",
         items: [{ service: "PHARMACY", qty: 12, amountKes: 400 }],
-        expected: "R-005 triggers (qty > 10) - UNDER_REVIEW",
+        expected: "R-005 triggers (qty > 10) - CLEARED (score 10)",
         severity: "warning",
+        note: "Single rule score below flag threshold",
       },
     ],
   },
@@ -304,16 +306,17 @@ const hospitals: HospitalTestGroup[] = [
         name: "Basic unverified",
         diagnosis: "Headache",
         items: [{ service: "CONSULTATION", qty: 1, amountKes: 1000 }],
-        expected: "R-001 triggers - RECEIVED, low score",
-        severity: "warning",
+        expected: "R-001 triggers - FLAGGED (score 50)",
+        severity: "danger",
+        note: "Single R-001 triggers flag threshold",
       },
       {
         name: "Mismatch + unverified",
         diagnosis: "Back pain - MRI needed",
         items: [{ service: "MRI", qty: 1, amountKes: 15000 }],
-        expected: "R-001 + R-002 trigger - VALIDATING",
+        expected: "R-001 + R-002 trigger - FLAGGED (score 100)",
         severity: "danger",
-        note: "MRI not authorized AND facility unverified",
+        note: "MRI not authorized AND facility unverified - critical risk",
       },
     ],
   },
@@ -668,7 +671,7 @@ export default function TestGuidePage() {
                   <TableCell>Facility Not Verified</TableCell>
                   <TableCell>verificationStatus ≠ VERIFIED</TableCell>
                   <TableCell>
-                    <Badge variant="destructive">+25</Badge>
+                    <Badge variant="destructive">+50</Badge>
                   </TableCell>
                 </TableRow>
                 <TableRow>
@@ -680,7 +683,7 @@ export default function TestGuidePage() {
                     Service not in hospital&apos;s authorized list
                   </TableCell>
                   <TableCell>
-                    <Badge variant="destructive">+20</Badge>
+                    <Badge variant="destructive">+50</Badge>
                   </TableCell>
                 </TableRow>
                 <TableRow>

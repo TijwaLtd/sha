@@ -254,7 +254,7 @@ const RULE_DEFS: RuleDef[] = [
     description: "Claim submitted by unverified facility",
     category: "FACILITY",
     severity: FindingSeverity.HIGH,
-    scoreContribution: 25,
+    scoreContribution: 50,
   },
   {
     code: "R-002",
@@ -262,7 +262,7 @@ const RULE_DEFS: RuleDef[] = [
     description: "Claimed service not in facility capabilities",
     category: "FACILITY",
     severity: FindingSeverity.HIGH,
-    scoreContribution: 20,
+    scoreContribution: 50,
   },
   {
     code: "R-003",
@@ -386,7 +386,7 @@ const HOSPITAL_DEFS: HospitalDef[] = [
       {
         patientRef: "PAT-SYN-102",
         diagnosis: "Routine infant immunization",
-        status: ClaimStatus.RECEIVED,
+        status: ClaimStatus.FLAGGED,
         submittedAt: "2026-08-02T09:00:00Z",
         items: [
           {
@@ -430,7 +430,7 @@ const HOSPITAL_DEFS: HospitalDef[] = [
       {
         patientRef: "PAT-SYN-103",
         diagnosis: "Routine antenatal visit",
-        status: ClaimStatus.ASSESSED,
+        status: ClaimStatus.CLEARED,
         submittedAt: "2026-08-01T10:00:00Z",
         items: [
           {
@@ -510,7 +510,7 @@ const HOSPITAL_DEFS: HospitalDef[] = [
       {
         patientRef: "PAT-SYN-106",
         diagnosis: "Delivery with complications - CS",
-        status: ClaimStatus.ASSESSED,
+        status: ClaimStatus.CLEARED,
         submittedAt: "2026-08-02T09:00:00Z",
         items: [
           {
@@ -536,7 +536,7 @@ const HOSPITAL_DEFS: HospitalDef[] = [
       {
         patientRef: "PAT-SYN-107",
         diagnosis: "Panel lab work-up",
-        status: ClaimStatus.FLAGGED,
+        status: ClaimStatus.CLEARED,
         submittedAt: "2026-08-04T09:00:00Z",
         items: [
           {
@@ -556,7 +556,7 @@ const HOSPITAL_DEFS: HospitalDef[] = [
       {
         patientRef: "PAT-SYN-108",
         diagnosis: "Head injury - needs CT",
-        status: ClaimStatus.UNDER_REVIEW,
+        status: ClaimStatus.FLAGGED,
         submittedAt: "2026-08-06T15:00:00Z",
         items: [
           {
@@ -610,7 +610,7 @@ const HOSPITAL_DEFS: HospitalDef[] = [
       {
         patientRef: "PAT-SYN-109",
         diagnosis: "Road traffic accident - major surgery",
-        status: ClaimStatus.ASSESSED,
+        status: ClaimStatus.CLEARED,
         submittedAt: "2026-08-02T05:00:00Z",
         items: [
           {
@@ -642,7 +642,7 @@ const HOSPITAL_DEFS: HospitalDef[] = [
       {
         patientRef: "PAT-SYN-110",
         diagnosis: "Complex orthopedic surgery with prolonged ICU stay",
-        status: ClaimStatus.FLAGGED,
+        status: ClaimStatus.CLEARED,
         submittedAt: "2026-08-05T07:00:00Z",
         items: [
           {
@@ -682,7 +682,7 @@ const HOSPITAL_DEFS: HospitalDef[] = [
       {
         patientRef: "PAT-SYN-111",
         diagnosis: "Mental health outpatient session",
-        status: ClaimStatus.RECEIVED,
+        status: ClaimStatus.CLEARED,
         submittedAt: "2026-08-06T12:00:00Z",
         items: [
           {
@@ -716,7 +716,7 @@ const HOSPITAL_DEFS: HospitalDef[] = [
       {
         patientRef: "PAT-SYN-112",
         diagnosis: "Renal failure - dialysis sessions",
-        status: ClaimStatus.ASSESSED,
+        status: ClaimStatus.CLEARED,
         submittedAt: "2026-08-01T07:00:00Z",
         items: [
           {
@@ -742,7 +742,7 @@ const HOSPITAL_DEFS: HospitalDef[] = [
       {
         patientRef: "PAT-SYN-113",
         diagnosis: "Cancer treatment - chemotherapy course",
-        status: ClaimStatus.FLAGGED,
+        status: ClaimStatus.CLEARED,
         submittedAt: "2026-08-04T08:00:00Z",
         items: [
           {
@@ -776,7 +776,7 @@ const HOSPITAL_DEFS: HospitalDef[] = [
       {
         patientRef: "PAT-SYN-114",
         diagnosis: "Multi-organ trauma - emergency major surgery",
-        status: ClaimStatus.FLAGGED,
+        status: ClaimStatus.CLEARED,
         submittedAt: "2026-08-07T03:00:00Z",
         items: [
           {
@@ -875,7 +875,7 @@ const HOSPITAL_DEFS: HospitalDef[] = [
       {
         patientRef: "PAT-SYN-002",
         diagnosis: "Malaria - uncomplicated",
-        status: ClaimStatus.ASSESSED,
+        status: ClaimStatus.CLEARED,
         submittedAt: "2026-08-03T10:30:00Z",
         items: [
           {
@@ -989,7 +989,7 @@ const HOSPITAL_DEFS: HospitalDef[] = [
       {
         patientRef: "PAT-SYN-005",
         diagnosis: "Severe malaria with complications",
-        status: ClaimStatus.UNDER_REVIEW,
+        status: ClaimStatus.CLEARED,
         submittedAt: "2026-08-04T08:15:00Z",
         items: [
           {
@@ -1050,7 +1050,7 @@ const HOSPITAL_DEFS: HospitalDef[] = [
       {
         patientRef: "PAT-SYN-006",
         diagnosis: "Chronic back pain",
-        status: ClaimStatus.RECEIVED,
+        status: ClaimStatus.FLAGGED,
         submittedAt: "2026-08-06T09:45:00Z",
         items: [
           {
@@ -1070,7 +1070,7 @@ const HOSPITAL_DEFS: HospitalDef[] = [
       {
         patientRef: "PAT-SYN-007",
         diagnosis: "MRI scan - lumbar spine",
-        status: ClaimStatus.VALIDATING,
+        status: ClaimStatus.FLAGGED,
         submittedAt: "2026-08-07T10:00:00Z",
         items: [
           {
@@ -1224,7 +1224,7 @@ const HOSPITAL_DEFS: HospitalDef[] = [
       {
         patientRef: "PAT-SYN-116",
         diagnosis: "Breast cancer - staging and chemotherapy",
-        status: ClaimStatus.ASSESSED,
+        status: ClaimStatus.CLEARED,
         submittedAt: "2026-08-03T09:00:00Z",
         items: [
           { code: "MRI", qty: 1, unitKes: 15000, description: "Staging MRI" },

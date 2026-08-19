@@ -44,16 +44,6 @@ export async function calculateRiskScore(claimId: string) {
     }
   }
 
-  if (claim.totalAmountCents > 500000) {
-    const amountScore = Math.min(20, Math.floor(claim.totalAmountCents / 500000) * 10)
-    contributors.push({
-      type: "SYSTEM",
-      description: `High claim amount: KES ${(claim.totalAmountCents / 100).toFixed(0)}`,
-      scoreImpact: amountScore,
-    })
-    totalScore += amountScore
-  }
-
   totalScore = Math.min(totalScore, 100)
 
   const level: RiskLevel =
