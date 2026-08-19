@@ -22,7 +22,10 @@ export async function generateAlerts(claimId: string) {
       hospital: true,
       findings: true,
       riskScore: { include: { contributors: true } },
-      ruleEvaluations: { where: { triggered: true }, include: { complianceRule: true } },
+      ruleEvaluations: {
+        where: { triggered: true },
+        include: { complianceRule: true },
+      },
     },
   })
 
@@ -96,23 +99,34 @@ export async function generateAlerts(claimId: string) {
     })
   }
 
+  const ruleCoveredTypes = new Set<string>()
+  for (const alert of alerts) {
+    if (alert.type === "FACILITY_VERIFICATION") ruleCoveredTypes.add("FACILITY_CONCERN")
+    if (alert.type === "SERVICE_MISMATCH") ruleCoveredTypes.add("SERVICE_MISMATCH")
+    if (alert.type === "HIGH_RISK_CLAIM") {
+      ruleCoveredTypes.add("AMOUNT_ANOMALY")
+      ruleCoveredTypes.add("QUANTITY_ANOMALY")
+    }
+  }
+
   const aiFindings = claim.findings.filter((f) => f.source === "AI")
   for (const finding of aiFindings) {
-    if (finding.severity === "HIGH" || finding.severity === "CRITICAL") {
-      alerts.push({
-        type: "AI_REVIEW_REQUIRED",
-        severity: finding.severity as "HIGH" | "CRITICAL",
-        title: `AI finding: ${finding.type || "Unknown"}`,
-        description: `AI analysis identified ${finding.severity.toLowerCase()} severity concern: ${finding.explanation}`,
-        claimId,
-        hospitalId: claim.hospitalId,
-        source: "AI",
-        metadata: {
-          findingType: finding.type,
-          confidence: finding.scoreContribution,
-        },
-      })
-    }
+    if (finding.severity !== "HIGH" && finding.severity !== "CRITICAL") continue
+    if (ruleCoveredTypes.has(finding.type || "")) continue
+
+    alerts.push({
+      type: "AI_REVIEW_REQUIRED",
+      severity: finding.severity as "HIGH" | "CRITICAL",
+      title: `AI finding: ${finding.type || "Unknown"}`,
+      description: `AI analysis identified ${finding.severity.toLowerCase()} severity concern: ${finding.explanation}`,
+      claimId,
+      hospitalId: claim.hospitalId,
+      source: "AI",
+      metadata: {
+        findingType: finding.type,
+        confidence: finding.scoreContribution,
+      },
+    })
   }
 
   const createdAlerts = []
@@ -126,8 +140,8 @@ export async function generateAlerts(claimId: string) {
     })
 
     if (!existing) {
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-const metadata = alertInput.metadata as any
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const metadata = alertInput.metadata as any
 
       const alert = await db.alert.create({
         data: {

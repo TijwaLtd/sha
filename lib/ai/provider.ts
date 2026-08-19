@@ -5,7 +5,7 @@ export interface AiProvider {
   analyzeClaim(context: ClaimContext): Promise<AiAnalysisResponse>
 }
 
-export type AiProviderName = "groq" | "openrouter" | "mock"
+export type AiProviderName = "groq" | "openrouter" | "openai" | "mock"
 
 export function getAiProvider(): AiProvider {
   const providerName = (process.env.AI_PROVIDER as AiProviderName) || "mock"
@@ -15,6 +15,8 @@ export function getAiProvider(): AiProvider {
       return createGroqProvider()
     case "openrouter":
       return createOpenRouterProvider()
+    case "openai":
+      return createOpenAiProvider()
     case "mock":
     default:
       return createMockProvider()
@@ -23,8 +25,7 @@ export function getAiProvider(): AiProvider {
 
 function createGroqProvider(): AiProvider {
   const apiKey = process.env.GROQ_API_KEY
-  const model =
-    process.env.GROQ_MODEL || "llama-3.1-70b-versatile"
+  const model = process.env.GROQ_MODEL || "llama-3.1-70b-versatile"
 
   if (!apiKey) {
     console.warn("GROQ_API_KEY not set, falling back to mock provider")
@@ -46,14 +47,10 @@ function createGroqProvider(): AiProvider {
           body: JSON.stringify({
             model,
             messages: [
-              {
-                role: "system",
-                content: SYSTEM_PROMPT,
-              },
+              { role: "system", content: SYSTEM_PROMPT },
               { role: "user", content: prompt },
             ],
             temperature: 0.2,
-            response_format: { type: "json_object" },
           }),
         }
       )
@@ -66,20 +63,17 @@ function createGroqProvider(): AiProvider {
       const content = data.choices?.[0]?.message?.content
       if (!content) throw new Error("Empty response from Groq")
 
-      return JSON.parse(content) as AiAnalysisResponse
+      return parseAiResponse(content)
     },
   }
 }
 
 function createOpenRouterProvider(): AiProvider {
   const apiKey = process.env.OPENROUTER_API_KEY
-  const model =
-    process.env.OPENROUTER_MODEL || "anthropic/claude-3-haiku"
+  const model = process.env.OPENROUTER_MODEL || "anthropic/claude-3-haiku"
 
   if (!apiKey) {
-    console.warn(
-      "OPENROUTER_API_KEY not set, falling back to mock provider"
-    )
+    console.warn("OPENROUTER_API_KEY not set, falling back to mock provider")
     return createMockProvider()
   }
 
@@ -100,10 +94,7 @@ function createOpenRouterProvider(): AiProvider {
           body: JSON.stringify({
             model,
             messages: [
-              {
-                role: "system",
-                content: SYSTEM_PROMPT,
-              },
+              { role: "system", content: SYSTEM_PROMPT },
               { role: "user", content: prompt },
             ],
             temperature: 0.2,
@@ -119,9 +110,62 @@ function createOpenRouterProvider(): AiProvider {
       const content = data.choices?.[0]?.message?.content
       if (!content) throw new Error("Empty response from OpenRouter")
 
-      return JSON.parse(content) as AiAnalysisResponse
+      return parseAiResponse(content)
     },
   }
+}
+
+function createOpenAiProvider(): AiProvider {
+  const apiKey = process.env.OPENAI_API_KEY
+  const model = process.env.OPENAI_MODEL || "gpt-4o"
+
+  if (!apiKey) {
+    console.warn("OPENAI_API_KEY not set, falling back to mock provider")
+    return createMockProvider()
+  }
+
+  return {
+    name: "openai",
+    async analyzeClaim(context: ClaimContext) {
+      const prompt = buildAnalysisPrompt(context)
+      const response = await fetch(
+        "https://api.openai.com/v1/chat/completions",
+        {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${apiKey}`,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            model,
+            messages: [
+              { role: "system", content: SYSTEM_PROMPT },
+              { role: "user", content: prompt },
+            ],
+            temperature: 0.2,
+          }),
+        }
+      )
+
+      if (!response.ok) {
+        throw new Error(`OpenAI API error: ${response.status}`)
+      }
+
+      const data = await response.json()
+      const content = data.choices?.[0]?.message?.content
+      if (!content) throw new Error("Empty response from OpenAI")
+
+      return parseAiResponse(content)
+    },
+  }
+}
+
+function parseAiResponse(content: string): AiAnalysisResponse {
+  const jsonMatch = content.match(/\{[\s\S]*\}/)
+  if (!jsonMatch) {
+    throw new Error("No JSON found in AI response")
+  }
+  return JSON.parse(jsonMatch[0]) as AiAnalysisResponse
 }
 
 function createMockProvider(): AiProvider {
@@ -146,14 +190,21 @@ function createMockProvider(): AiProvider {
         })
       }
 
-      if (
-        context.verificationStatus !== "VERIFIED"
-      ) {
+      if (context.verificationStatus === "REJECTED") {
+        findings.push({
+          category: "FACILITY_CONCERN",
+          severity: "CRITICAL",
+          confidence: 0.95,
+          description: `Hospital verification was REJECTED - facility previously failed verification`,
+          reasoning:
+            "A rejected facility may have attempted to resume operations without meeting compliance requirements",
+        })
+      } else if (context.verificationStatus === "UNVERIFIED") {
         findings.push({
           category: "FACILITY_CONCERN",
           severity: "MEDIUM",
           confidence: 0.85,
-          description: `Facility verification status: ${context.verificationStatus.toLowerCase()}`,
+          description: `Facility verification status: unverified`,
           reasoning: "Unverified facilities may not meet compliance standards",
         })
       }
@@ -193,16 +244,14 @@ function createMockProvider(): AiProvider {
         }
       }
 
-      const ruleHits = context.complianceRuleHits.filter(
-        (r) => r.triggered
-      )
+      const ruleHits = context.complianceRuleHits.filter((r) => r.triggered)
       for (const hit of ruleHits) {
         findings.push({
           category: "PATTERN_ANOMALY",
           severity: hit.severity as "LOW" | "MEDIUM" | "HIGH" | "CRITICAL",
           confidence: 0.85,
           description: `Compliance rule ${hit.ruleCode} triggered: ${hit.ruleName}`,
-          reasoning: `Automated rule evaluation flagged this claim`,
+          reasoning: "Automated rule evaluation flagged this claim",
         })
       }
 

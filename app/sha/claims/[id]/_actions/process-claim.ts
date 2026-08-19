@@ -106,7 +106,7 @@ export async function processClaim(input: ProcessClaimInput) {
   if (next === "ASSESSED") {
     const { totalScore, level } = await calculateRiskScore(input.claimId)
 
-    const shouldFlag = totalScore >= 30 || level === "HIGH" || level === "CRITICAL"
+    const shouldFlag = totalScore >= 50 || level === "HIGH" || level === "CRITICAL"
     const finalStatus = shouldFlag ? "FLAGGED" : "CLEARED"
 
     await db.claim.update({

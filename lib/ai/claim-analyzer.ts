@@ -13,11 +13,29 @@ export async function analyzeClaim(claimId: string) {
         },
       },
       items: { include: { service: true } },
-      ruleEvaluations: { where: { triggered: true }, include: { complianceRule: true } },
+      ruleEvaluations: {
+        where: { triggered: true },
+        include: { complianceRule: true },
+      },
     },
   })
 
   if (!claim) throw new Error("Claim not found")
+
+  const existingAnalysis = await db.aiAnalysis.findFirst({
+    where: { claimId, status: "COMPLETED" },
+  })
+  if (existingAnalysis) {
+    return { analysis: existingAnalysis, skipped: true }
+  }
+
+  const previousClaims = await db.claim.count({
+    where: {
+      hospitalId: claim.hospitalId,
+      status: { notIn: ["DRAFT"] },
+      createdAt: { lt: claim.createdAt },
+    },
+  })
 
   const context: ClaimContext = {
     claimId: claim.id,
@@ -34,7 +52,7 @@ export async function analyzeClaim(claimId: string) {
       serviceCode: item.service.code,
     })),
     hospitalServices: claim.hospital.services.map((s) => s.service.code),
-    previousClaims: 0,
+    previousClaims,
     complianceRuleHits: claim.ruleEvaluations.map((eval_) => ({
       ruleCode: eval_.complianceRule.code,
       ruleName: eval_.complianceRule.name,
