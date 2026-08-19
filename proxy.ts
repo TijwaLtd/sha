@@ -2,7 +2,7 @@ import { NextResponse } from "next/server"
 import type { NextRequest } from "next/server"
 import { decrypt } from "@/lib/auth/session"
 
-const publicRoutes = ["/login", "/", "test-guide", "/unauthorized"]
+const publicRoutes = ["/login", "/", "/test-guide", "/unauthorized"]
 const hospitalRoutes = ["/hospital"]
 const shaRoutes = ["/sha"]
 
