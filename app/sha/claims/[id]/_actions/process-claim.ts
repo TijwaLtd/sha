@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache"
 import { requireRole } from "@/lib/auth/dal"
 import { createDbClient } from "@/lib/db"
 import { evaluateClaimRules } from "@/lib/rules/engine"
+import { evaluateContextualRules } from "@/lib/rules/contextual"
 import { analyzeClaim } from "@/lib/ai/claim-analyzer"
 import { calculateRiskScore } from "@/lib/risk/calculator"
 import { generateAlerts } from "@/lib/alerts/generator"
@@ -68,6 +69,22 @@ export async function processClaim(input: ProcessClaimInput) {
       action: "RULES_EVALUATED",
       entityType: "Claim",
       entityId: input.claimId,
+    },
+  })
+
+  // ─── Step 1b: CONTEXTUAL — Equipment, tariff, capacity, billing ────
+  const contextualResults = await evaluateContextualRules(input.claimId)
+
+  await db.auditLog.create({
+    data: {
+      userId: user.id,
+      action: "CONTEXTUAL_RULES_EVALUATED",
+      entityType: "Claim",
+      entityId: input.claimId,
+      metadata: {
+        rulesEvaluated: contextualResults.length,
+        rulesTriggered: contextualResults.filter((r) => r.triggered).length,
+      },
     },
   })
 
@@ -152,22 +169,21 @@ export async function processClaim(input: ProcessClaimInput) {
         riskLevel: level,
         finalStatus,
         aiAnalysisOk,
+        contextualRulesTriggered: contextualResults.filter((r) => r.triggered).length,
       },
     },
   })
 
-  if (shouldFlag) {
-    await generateAlerts(input.claimId)
+  await generateAlerts(input.claimId)
 
-    await db.auditLog.create({
-      data: {
-        userId: user.id,
-        action: "ALERTS_GENERATED",
-        entityType: "Claim",
-        entityId: input.claimId,
-      },
-    })
-  }
+  await db.auditLog.create({
+    data: {
+      userId: user.id,
+      action: "ALERTS_GENERATED",
+      entityType: "Claim",
+      entityId: input.claimId,
+    },
+  })
 
   revalidatePath(`/sha/claims/${input.claimId}`)
   revalidatePath("/sha/claims")
@@ -182,5 +198,6 @@ export async function processClaim(input: ProcessClaimInput) {
     riskScore: totalScore,
     riskLevel: level,
     aiAnalysisOk,
+    contextualRulesTriggered: contextualResults.filter((r) => r.triggered).length,
   }
 }
