@@ -105,6 +105,84 @@ enum AlertType {
   UNUSUAL_BILLING
   DUPLICATE_CLAIM
   AI_REVIEW_REQUIRED
+  FACILITY_LEVEL_MISMATCH
+  SERVICE_NOT_ACCREDITED
+  SERVICE_NOT_OFFERED
+  SERVICE_REQUIREMENT_MISSING
+  EQUIPMENT_UNAVAILABLE
+  EQUIPMENT_CAPACITY_EXCEEDED
+  SERVICE_CAPACITY_EXCEEDED
+  STAFF_CAPACITY_EXCEEDED
+  OPERATING_HOURS_ANOMALY
+  TARIFF_EXCEEDED
+  ENCOUNTER_BILLING_LIMIT_EXCEEDED
+  DAILY_BILLING_LIMIT_EXCEEDED
+  MONTHLY_BILLING_LIMIT_EXCEEDED
+  PATIENT_SERVICE_FREQUENCY_ANOMALY
+  PATIENT_SPENDING_ANOMALY
+  FACILITY_VOLUME_ANOMALY
+  FACILITY_PRICE_ANOMALY
+  NEAR_DUPLICATE_CLAIM
+  CROSS_FACILITY_ANOMALY
+  UNUSUAL_SERVICE_SEQUENCE
+  HISTORICAL_BEHAVIOR_ANOMALY
+}
+
+enum EquipmentStatus {
+  OPERATIONAL
+  MAINTENANCE
+  RETIRED
+  UNAVAILABLE
+}
+
+enum EncounterType {
+  OUTPATIENT
+  INPATIENT
+  EMERGENCY
+  DAY_CASE
+  TELEHEALTH
+}
+
+enum BillingStatus {
+  PENDING
+  APPROVED
+  PARTIALLY_APPROVED
+  REJECTED
+  PAID
+  PARTIALLY_PAID
+}
+
+enum ServiceType {
+  DIAGNOSTIC
+  THERAPEUTIC
+  SURGICAL
+  LABORATORY
+  RADIOLOGY
+  PHARMACY
+  PREVENTIVE
+  REHABILITATION
+  MENTAL_HEALTH
+  DENTAL
+  OPTICAL
+  OTHER
+}
+
+enum CapacityBasis {
+  EQUIPMENT
+  STAFF
+  ROOMS
+  HOURS
+  MANUAL
+}
+
+enum DayOfWeek {
+  MONDAY
+  TUESDAY
+  WEDNESDAY
+  THURSDAY
+  FRIDAY
+  SATURDAY
+  SUNDAY
 }
 
 // ─── Identity ────────────────────────────────────────────
@@ -129,6 +207,153 @@ model User {
   @@index([hospitalId])
 }
 
+// ─── Facility Levels ─────────────────────────────────────
+
+model FacilityLevel {
+  id          String   @id @default(cuid())
+  code        String   @unique
+  name        String
+  description String?
+  rank        Int      @default(0)
+  active      Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  hospitals               Hospital[]
+  capabilities           FacilityLevelCapability[]
+  tariffs                ServiceTariff[]
+  billingPolicies        BillingPolicy[]
+
+  @@index([code])
+  @@index([rank])
+}
+
+// ─── Equipment Domain ────────────────────────────────────
+
+model EquipmentType {
+  id          String   @id @default(cuid())
+  code        String   @unique
+  name        String
+  description String?
+  category    String?
+  active      Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  hospitalEquipment HospitalEquipment[]
+  serviceEquipment  ServiceEquipment[]
+  maintenance       EquipmentMaintenance[]
+
+  @@index([code])
+  @@index([category])
+}
+
+model HospitalEquipment {
+  id                  String        @id @default(cuid())
+  hospitalId          String
+  equipmentTypeId     String
+  quantity            Int           @default(0)
+  operationalQuantity Int           @default(0)
+  status              EquipmentStatus @default(OPERATIONAL)
+  acquisitionDate     DateTime?
+  installationDate    DateTime?
+  retirementDate      DateTime?
+  notes               String?
+  createdAt           DateTime      @default(now())
+  updatedAt           DateTime      @updatedAt
+
+  hospital      Hospital      @relation(fields: [hospitalId], references: [id], onDelete: Cascade)
+  equipmentType EquipmentType @relation(fields: [equipmentTypeId], references: [id])
+  maintenance   EquipmentMaintenance[]
+
+  @@unique([hospitalId, equipmentTypeId])
+  @@index([hospitalId])
+  @@index([equipmentTypeId])
+  @@index([status])
+}
+
+model EquipmentMaintenance {
+  id              String        @id @default(cuid())
+  hospitalEquipmentId String
+  equipmentTypeId String?
+  startDate       DateTime
+  endDate         DateTime?
+  reason          String?
+  notes           String?
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+
+  hospitalEquipment HospitalEquipment @relation(fields: [hospitalEquipmentId], references: [id], onDelete: Cascade)
+  equipmentType     EquipmentType?    @relation(fields: [equipmentTypeId], references: [id])
+
+  @@index([hospitalEquipmentId])
+  @@index([equipmentTypeId])
+  @@index([startDate])
+  @@index([endDate])
+}
+
+// ─── Staff Domain ────────────────────────────────────────
+
+model StaffType {
+  id          String   @id @default(cuid())
+  code        String   @unique
+  name        String
+  description String?
+  category    String?
+  active      Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  hospitalStaff  HospitalStaff[]
+  serviceStaff   ServiceStaff[]
+
+  @@index([code])
+  @@index([category])
+}
+
+model HospitalStaff {
+  id            String    @id @default(cuid())
+  hospitalId    String
+  staffTypeId   String
+  quantity      Int       @default(0)
+  activeQuantity Int      @default(0)
+  effectiveFrom DateTime  @default(now())
+  effectiveTo   DateTime?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  hospital   Hospital  @relation(fields: [hospitalId], references: [id], onDelete: Cascade)
+  staffType  StaffType @relation(fields: [staffTypeId], references: [id])
+
+  @@unique([hospitalId, staffTypeId])
+  @@index([hospitalId])
+  @@index([staffTypeId])
+}
+
+// ─── Operating Hours ─────────────────────────────────────
+
+model HospitalOperatingHours {
+  id              String    @id @default(cuid())
+  hospitalId      String
+  dayOfWeek       DayOfWeek
+  isOpen          Boolean   @default(true)
+  is24Hour        Boolean   @default(false)
+  openTime        String?
+  closeTime       String?
+  hasEmergency    Boolean   @default(false)
+  serviceCode     String?
+  effectiveFrom   DateTime  @default(now())
+  effectiveTo     DateTime?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  hospital Hospital @relation(fields: [hospitalId], references: [id], onDelete: Cascade)
+
+  @@unique([hospitalId, dayOfWeek, serviceCode])
+  @@index([hospitalId])
+  @@index([dayOfWeek])
+}
+
 // ─── Facilities ──────────────────────────────────────────
 
 model Hospital {
@@ -136,19 +361,61 @@ model Hospital {
   facilityIdentifier String             @unique
   name               String
   type               String?
+  facilityLevelId    String?
   status             HospitalStatus     @default(UNKNOWN)
   verificationStatus VerificationStatus @default(UNVERIFIED)
   location           Json?
   createdAt          DateTime           @default(now())
   updatedAt          DateTime           @updatedAt
 
-  users    User[]
-  services HospitalService[]
-  claims   Claim[]
-  alerts   Alert[]
+  facilityLevel     FacilityLevel?          @relation(fields: [facilityLevelId], references: [id])
+  users             User[]
+  services          HospitalService[]
+  claims            Claim[]
+  alerts            Alert[]
+  equipment         HospitalEquipment[]
+  staff             HospitalStaff[]
+  operatingHours    HospitalOperatingHours[]
+  serviceCapabilities HospitalServiceCapability[]
+  tariffs           ServiceTariff[]
+  billingPolicies   BillingPolicy[]
+  serviceCapacities ServiceCapacity[]
+  encounters        Encounter[]
 
   @@index([status])
   @@index([verificationStatus])
+  @@index([facilityLevelId])
+}
+
+// ─── Services ────────────────────────────────────────────
+
+model Service {
+  id          String      @id @default(cuid())
+  code        String      @unique
+  name        String
+  description String?
+  category    String?
+  serviceType ServiceType @default(OTHER)
+  isInpatient Boolean     @default(false)
+  isEmergency Boolean     @default(false)
+  active      Boolean     @default(true)
+  createdAt   DateTime    @default(now())
+  updatedAt   DateTime    @updatedAt
+
+  hospitalServices    HospitalService[]
+  claimItems          ClaimItem[]
+  requirements        ServiceRequirement[]
+  serviceEquipment    ServiceEquipment[]
+  serviceStaff        ServiceStaff[]
+  levelCapabilities   FacilityLevelCapability[]
+  hospitalCapabilities HospitalServiceCapability[]
+  tariffs             ServiceTariff[]
+  billingPolicies     BillingPolicy[]
+  capacities          ServiceCapacity[]
+  patientHistories    PatientServiceHistory[]
+
+  @@index([category])
+  @@index([serviceType])
 }
 
 model HospitalService {
@@ -164,20 +431,168 @@ model HospitalService {
   @@index([serviceId])
 }
 
-model Service {
+// ─── Service Requirements ────────────────────────────────
+
+model ServiceRequirement {
+  id              String   @id @default(cuid())
+  serviceId       String
+  requirementType String
+  requirementCode String
+  isRequired      Boolean  @default(true)
+  notes           String?
+  active          Boolean  @default(true)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  service Service @relation(fields: [serviceId], references: [id], onDelete: Cascade)
+
+  @@unique([serviceId, requirementType, requirementCode])
+  @@index([serviceId])
+  @@index([requirementType])
+}
+
+model ServiceEquipment {
+  id              String   @id @default(cuid())
+  serviceId       String
+  equipmentTypeId String
+  isRequired      Boolean  @default(true)
+  minQuantity     Int      @default(1)
+  notes           String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  service       Service       @relation(fields: [serviceId], references: [id], onDelete: Cascade)
+  equipmentType EquipmentType @relation(fields: [equipmentTypeId], references: [id])
+
+  @@unique([serviceId, equipmentTypeId])
+  @@index([serviceId])
+  @@index([equipmentTypeId])
+}
+
+model ServiceStaff {
   id          String   @id @default(cuid())
-  code        String   @unique
-  name        String
-  description String?
-  category    String?
-  active      Boolean  @default(true)
+  serviceId   String
+  staffTypeId String
+  isRequired  Boolean  @default(true)
+  minQuantity Int      @default(1)
+  notes       String?
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
-  hospitalServices HospitalService[]
-  claimItems       ClaimItem[]
+  service   Service   @relation(fields: [serviceId], references: [id], onDelete: Cascade)
+  staffType StaffType @relation(fields: [staffTypeId], references: [id])
 
-  @@index([category])
+  @@unique([serviceId, staffTypeId])
+  @@index([serviceId])
+  @@index([staffTypeId])
+}
+
+// ─── Capability ──────────────────────────────────────────
+
+model FacilityLevelCapability {
+  id              String   @id @default(cuid())
+  facilityLevelId String
+  serviceId       String
+  isExpected      Boolean  @default(true)
+  isAllowed       Boolean  @default(true)
+  requiresAccreditation Boolean @default(false)
+  active          Boolean  @default(true)
+  effectiveFrom   DateTime @default(now())
+  effectiveTo     DateTime?
+  notes           String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  facilityLevel FacilityLevel @relation(fields: [facilityLevelId], references: [id], onDelete: Cascade)
+  service       Service       @relation(fields: [serviceId], references: [id])
+
+  @@unique([facilityLevelId, serviceId])
+  @@index([facilityLevelId])
+  @@index([serviceId])
+}
+
+model HospitalServiceCapability {
+  id              String   @id @default(cuid())
+  hospitalId      String
+  serviceId       String
+  isOffered       Boolean  @default(true)
+  isAccredited    Boolean  @default(false)
+  isActive        Boolean  @default(true)
+  effectiveFrom   DateTime @default(now())
+  effectiveTo     DateTime?
+  maxCapacity     Int?
+  notes           String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  hospital Hospital @relation(fields: [hospitalId], references: [id], onDelete: Cascade)
+  service  Service  @relation(fields: [serviceId], references: [id])
+
+  @@unique([hospitalId, serviceId])
+  @@index([hospitalId])
+  @@index([serviceId])
+  @@index([isAccredited])
+}
+
+// ─── Patient Domain ──────────────────────────────────────
+
+model Patient {
+  id                String   @id @default(cuid())
+  externalReference String?  @unique
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  encounters       Encounter[]
+  serviceHistories PatientServiceHistory[]
+  claims           Claim[]
+
+  @@index([externalReference])
+}
+
+model Encounter {
+  id              String        @id @default(cuid())
+  patientId       String
+  hospitalId      String
+  encounterDate   DateTime
+  encounterType   EncounterType @default(OUTPATIENT)
+  diagnosis       String?
+  status          String        @default("ACTIVE")
+  admissionDate   DateTime?
+  dischargeDate   DateTime?
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+
+  patient  Patient  @relation(fields: [patientId], references: [id])
+  hospital Hospital @relation(fields: [hospitalId], references: [id])
+  claims   Claim[]
+
+  @@index([patientId])
+  @@index([hospitalId])
+  @@index([encounterDate])
+  @@index([encounterType])
+}
+
+model PatientServiceHistory {
+  id               String   @id @default(cuid())
+  patientId        String
+  serviceId        String
+  encounterId      String?
+  facilityLevelRank Int?
+  claimedAmountCents Int    @default(0)
+  approvedAmountCents Int   @default(0)
+  paidAmountCents  Int      @default(0)
+  quantity         Int      @default(1)
+  claimDate        DateTime
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  patient  Patient  @relation(fields: [patientId], references: [id])
+  service  Service  @relation(fields: [serviceId], references: [id])
+
+  @@unique([patientId, serviceId, claimDate])
+  @@index([patientId])
+  @@index([serviceId])
+  @@index([claimDate])
 }
 
 // ─── Claims ──────────────────────────────────────────────
@@ -186,17 +601,26 @@ model Claim {
   id               String      @id @default(cuid())
   reference        String      @unique
   hospitalId       String
+  patientId        String?
+  encounterId      String?
   submittedById    String?
   patientReference String
   diagnosis        String?
   status           ClaimStatus @default(DRAFT)
   source           ClaimSource @default(HOSPITAL_PORTAL)
   totalAmountCents Int         @default(0)
+  approvedAmountCents Int      @default(0)
+  rejectedAmountCents Int      @default(0)
+  paidAmountCents  Int         @default(0)
+  adjustmentAmountCents Int    @default(0)
+  billingStatus    BillingStatus @default(PENDING)
   submittedAt      DateTime?
   createdAt        DateTime    @default(now())
   updatedAt        DateTime    @updatedAt
 
   hospital        Hospital              @relation(fields: [hospitalId], references: [id])
+  patient         Patient?              @relation(fields: [patientId], references: [id])
+  encounter       Encounter?            @relation(fields: [encounterId], references: [id])
   submitter       User?                 @relation("ClaimSubmitter", fields: [submittedById], references: [id])
   items           ClaimItem[]
   ruleEvaluations ClaimRuleEvaluation[]
@@ -212,6 +636,9 @@ model Claim {
   @@index([submittedAt])
   @@index([reference])
   @@index([source])
+  @@index([patientId])
+  @@index([encounterId])
+  @@index([billingStatus])
 }
 
 model ClaimItem {
@@ -222,6 +649,9 @@ model ClaimItem {
   quantity         Int      @default(1)
   unitAmountCents  Int
   totalAmountCents Int
+  approvedAmountCents Int   @default(0)
+  rejectedAmountCents Int   @default(0)
+  paidAmountCents  Int      @default(0)
   metadata         Json?
   createdAt        DateTime @default(now())
   updatedAt        DateTime @updatedAt
@@ -302,6 +732,7 @@ model Finding {
   @@index([claimItemId])
   @@index([source])
   @@index([severity])
+  @@index([type])
 }
 
 // ─── AI Analysis ─────────────────────────────────────────
@@ -469,4 +900,90 @@ model Alert {
   @@index([claimId])
   @@index([hospitalId])
   @@index([createdAt])
+}
+
+// ─── Policy / Tariff ─────────────────────────────────────
+
+model ServiceTariff {
+  id              String   @id @default(cuid())
+  serviceId       String
+  facilityLevelId String?
+  hospitalId      String?
+  patientCategory String?
+  unitAmountCents Int
+  minAmountCents  Int?
+  maxAmountCents  Int?
+  effectiveFrom   DateTime @default(now())
+  effectiveTo     DateTime?
+  active          Boolean  @default(true)
+  source          String?
+  notes           String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  service       Service        @relation(fields: [serviceId], references: [id])
+  facilityLevel FacilityLevel? @relation(fields: [facilityLevelId], references: [id])
+  hospital      Hospital?      @relation(fields: [hospitalId], references: [id])
+
+  @@unique([serviceId, facilityLevelId, hospitalId, patientCategory])
+  @@index([serviceId])
+  @@index([facilityLevelId])
+  @@index([hospitalId])
+  @@index([effectiveFrom])
+  @@index([active])
+}
+
+model BillingPolicy {
+  id                  String   @id @default(cuid())
+  facilityLevelId     String?
+  serviceId           String?
+  hospitalId          String?
+  maxPerEncounter     Int?
+  maxPerService       Int?
+  maxQtyPerService    Int?
+  maxDailyAmount      Int?
+  maxDailyQuantity    Int?
+  maxMonthlyAmount    Int?
+  maxMonthlyQuantity  Int?
+  effectiveFrom       DateTime @default(now())
+  effectiveTo         DateTime?
+  active              Boolean  @default(true)
+  notes               String?
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+
+  facilityLevel FacilityLevel? @relation(fields: [facilityLevelId], references: [id])
+  service       Service?       @relation(fields: [serviceId], references: [id])
+  hospital      Hospital?      @relation(fields: [hospitalId], references: [id])
+
+  @@index([facilityLevelId])
+  @@index([serviceId])
+  @@index([hospitalId])
+  @@index([effectiveFrom])
+  @@index([active])
+}
+
+model ServiceCapacity {
+  id                    String       @id @default(cuid())
+  hospitalId            String
+  serviceId             String
+  theoreticalDailyCapacity Int?
+  operationalDailyCapacity Int?
+  weeklyCapacity        Int?
+  monthlyCapacity       Int?
+  operatingHours        String?
+  averageProcedureDurationMinutes Int?
+  capacityBasis         CapacityBasis @default(MANUAL)
+  effectiveFrom         DateTime     @default(now())
+  effectiveTo           DateTime?
+  notes                 String?
+  createdAt             DateTime     @default(now())
+  updatedAt             DateTime     @updatedAt
+
+  hospital Hospital @relation(fields: [hospitalId], references: [id], onDelete: Cascade)
+  service  Service  @relation(fields: [serviceId], references: [id])
+
+  @@unique([hospitalId, serviceId])
+  @@index([hospitalId])
+  @@index([serviceId])
 }
