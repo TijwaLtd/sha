@@ -1,4 +1,5 @@
 import Link from "next/link"
+import { Suspense } from "react"
 import { requireRole } from "@/lib/auth/dal"
 import { createDbClient } from "@/lib/db"
 import { formatKES } from "@/lib/money"
@@ -10,6 +11,7 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card"
+import { ClaimFilter } from "./_components/claim-filter"
 
 const statusColors: Record<string, string> = {
   RECEIVED:
@@ -25,22 +27,42 @@ const statusColors: Record<string, string> = {
   FLAGGED: "bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-300",
 }
 
-export default async function ClaimsPage() {
+interface ClaimsPageProps {
+  searchParams: Promise<{
+    hospitalId?: string
+  }>
+}
+
+export default async function ClaimsPage({ searchParams }: ClaimsPageProps) {
   await requireRole(["SHA_OFFICER", "ADMIN"])
 
+  const params = await searchParams
   const db = createDbClient()
-  const claims = await db.claim.findMany({
-    where: {
-      status: {
-        in: ["RECEIVED", "VALIDATING", "ANALYZING", "ASSESSED"],
+
+  const where: Record<string, unknown> = {
+    status: {
+      in: ["RECEIVED", "VALIDATING", "ANALYZING", "ASSESSED"],
+    },
+  }
+
+  if (params.hospitalId) {
+    where.hospitalId = params.hospitalId
+  }
+
+  const [claims, hospitals] = await Promise.all([
+    db.claim.findMany({
+      where,
+      orderBy: { submittedAt: "desc" },
+      include: {
+        hospital: { select: { name: true, facilityIdentifier: true } },
+        _count: { select: { items: true } },
       },
-    },
-    orderBy: { submittedAt: "desc" },
-    include: {
-      hospital: { select: { name: true, facilityIdentifier: true } },
-      _count: { select: { items: true } },
-    },
-  })
+    }),
+    db.hospital.findMany({
+      select: { id: true, name: true, facilityIdentifier: true },
+      orderBy: { name: "asc" },
+    }),
+  ])
 
   return (
     <div className="p-4 md:p-6">
@@ -51,6 +73,10 @@ export default async function ClaimsPage() {
             {claims.length} claim{claims.length !== 1 ? "s" : ""} in processing queue
           </p>
         </div>
+
+        <Suspense fallback={<div>Loading filter...</div>}>
+          <ClaimFilter hospitals={hospitals} />
+        </Suspense>
 
         {claims.length === 0 ? (
           <Card>

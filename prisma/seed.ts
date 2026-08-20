@@ -527,6 +527,30 @@ const HOSPITAL_DEFS: HospitalDef[] = [
           { code: "X_RAY", qty: 1, unitKes: 1500, description: "Wrist X-ray" },
         ],
       },
+      // ── Contextual rule: R-010 Patient service frequency ──
+      {
+        patientRef: "PAT-SYN-123",
+        diagnosis: "Recurrent malaria episodes - frequent testing",
+        status: ClaimStatus.SUBMITTED,
+        submittedAt: "2026-08-11T10:00:00Z",
+        items: [
+          { code: "MALARIA_TEST", qty: 8, unitKes: 300, description: "Repeated malaria rapid tests" },
+          { code: "CONSULTATION", qty: 8, unitKes: 200, description: "Follow-up consultations" },
+          { code: "PHARMACY", qty: 8, unitKes: 500, description: "Antimalarial medication" },
+        ],
+      },
+      // ── Contextual rule: R-016 Daily billing limit exceeded ──
+      {
+        patientRef: "PAT-SYN-129",
+        diagnosis: "Busy maternity day - multiple deliveries",
+        status: ClaimStatus.SUBMITTED,
+        submittedAt: "2026-08-12T06:00:00Z",
+        items: [
+          { code: "DELIVERY_NORMAL", qty: 3, unitKes: 20000, description: "Normal deliveries" },
+          { code: "PHARMACY", qty: 10, unitKes: 1500, description: "Post-delivery medication" },
+          { code: "CONSULTATION", qty: 5, unitKes: 200, description: "Prenatal consultations" },
+        ],
+      },
     ],
   },
   {
@@ -617,6 +641,17 @@ const HOSPITAL_DEFS: HospitalDef[] = [
             unitKes: 8000,
             description: "Head CT scan",
           },
+        ],
+      },
+      // ── Contextual rule: R-013 Capacity exceeded ──
+      {
+        patientRef: "PAT-SYN-127",
+        diagnosis: "Mass casualty incident - emergency imaging",
+        status: ClaimStatus.SUBMITTED,
+        submittedAt: "2026-08-13T08:00:00Z",
+        items: [
+          { code: "X_RAY", qty: 20, unitKes: 1500, description: "Batch trauma X-rays" },
+          { code: "CONSULTATION", qty: 15, unitKes: 500, description: "Emergency consultations" },
         ],
       },
     ],
@@ -750,6 +785,17 @@ const HOSPITAL_DEFS: HospitalDef[] = [
             unitKes: 150,
             description: "Intake consultation",
           },
+        ],
+      },
+      // ── Contextual rule: R-007 Equipment unavailability ──
+      {
+        patientRef: "PAT-SYN-125",
+        diagnosis: "Suspected pulmonary embolism - urgent CT needed",
+        status: ClaimStatus.SUBMITTED,
+        submittedAt: "2026-08-12T14:00:00Z",
+        items: [
+          { code: "CT_SCAN", qty: 2, unitKes: 8000, description: "CT pulmonary angiogram" },
+          { code: "SPECIALIST_CONSULT", qty: 1, unitKes: 1000, description: "Pulmonology consultation" },
         ],
       },
     ],
@@ -987,6 +1033,42 @@ const HOSPITAL_DEFS: HospitalDef[] = [
           },
         ],
       },
+      // ── Contextual rule: R-008 Equipment capacity exceeded ──
+      {
+        patientRef: "PAT-SYN-120",
+        diagnosis: "Mass casualty screening - batch imaging",
+        status: ClaimStatus.SUBMITTED,
+        submittedAt: "2026-08-12T09:00:00Z",
+        items: [
+          { code: "X_RAY", qty: 25, unitKes: 1500, description: "Batch trauma X-rays for 25 patients" },
+          { code: "CONSULTATION", qty: 10, unitKes: 1500, description: "Triage consultations" },
+        ],
+      },
+      // ── Contextual rule: R-011 Billing limits exceeded ──
+      {
+        patientRef: "PAT-SYN-124",
+        diagnosis: "Multi-system workup with surgical intervention",
+        status: ClaimStatus.SUBMITTED,
+        submittedAt: "2026-08-13T10:00:00Z",
+        items: [
+          { code: "SURGERY_MAJOR", qty: 1, unitKes: 200000, description: "Emergency surgical intervention" },
+          { code: "ICU", qty: 5, unitKes: 15000, description: "ICU admission (per day)" },
+          { code: "PHARMACY", qty: 1, unitKes: 10000, description: "Post-operative medication" },
+        ],
+      },
+      // ── Contextual rule: R-015 Patient spending anomaly ──
+      {
+        patientRef: "PAT-SYN-128",
+        diagnosis: "Chronic oncology condition - intensive treatment",
+        status: ClaimStatus.SUBMITTED,
+        submittedAt: "2026-08-14T08:00:00Z",
+        items: [
+          { code: "SPECIALIST_CONSULT", qty: 3, unitKes: 5000, description: "Oncology consultations" },
+          { code: "CHEMOTHERAPY", qty: 2, unitKes: 50000, description: "Chemotherapy sessions" },
+          { code: "ICU", qty: 10, unitKes: 15000, description: "ICU monitoring (per day)" },
+          { code: "MRI", qty: 2, unitKes: 15000, description: "Follow-up MRI scans" },
+        ],
+      },
     ],
   },
   {
@@ -1089,6 +1171,18 @@ const HOSPITAL_DEFS: HospitalDef[] = [
         },
         alertStatus: "RESOLVED",
       },
+      // ── Contextual rule: R-009 Tariff exceeded ──
+      {
+        patientRef: "PAT-SYN-121",
+        diagnosis: "Specialist cardiac evaluation",
+        status: ClaimStatus.SUBMITTED,
+        submittedAt: "2026-08-12T11:00:00Z",
+        items: [
+          { code: "CONSULTATION", qty: 1, unitKes: 8000, description: "Specialist cardiac consultation" },
+          { code: "PHARMACY", qty: 1, unitKes: 3000, description: "Cardiac medication" },
+          { code: "X_RAY", qty: 1, unitKes: 2000, description: "Chest X-ray" },
+        ],
+      },
     ],
   },
   {
@@ -1136,6 +1230,18 @@ const HOSPITAL_DEFS: HospitalDef[] = [
             unitKes: 15000,
             description: "MRI lumbar spine",
           },
+        ],
+      },
+      // ── Contextual rule: R-012 Facility level mismatch ──
+      {
+        patientRef: "PAT-SYN-122",
+        diagnosis: "Emergency caesarean section",
+        status: ClaimStatus.SUBMITTED,
+        submittedAt: "2026-08-13T04:00:00Z",
+        items: [
+          { code: "DELIVERY_CS", qty: 1, unitKes: 25000, description: "Caesarean section" },
+          { code: "SURGERY_MINOR", qty: 1, unitKes: 5000, description: "Post-operative wound care" },
+          { code: "PHARMACY", qty: 1, unitKes: 3000, description: "Post-surgical medication" },
         ],
       },
     ],
@@ -1227,6 +1333,18 @@ const HOSPITAL_DEFS: HospitalDef[] = [
         review: { officer: "sarah", status: ReviewStatus.PENDING },
         alertStatus: "ACKNOWLEDGED",
       },
+      // ── Contextual rule: R-014 Service not accredited ──
+      {
+        patientRef: "PAT-SYN-126",
+        diagnosis: "Acute appendicitis - emergency surgical intervention",
+        status: ClaimStatus.SUBMITTED,
+        submittedAt: "2026-08-14T07:30:00Z",
+        items: [
+          { code: "SURGERY_MAJOR", qty: 1, unitKes: 150000, description: "Appendectomy" },
+          { code: "CONSULTATION", qty: 1, unitKes: 2000, description: "Pre-surgical consultation" },
+          { code: "PHARMACY", qty: 1, unitKes: 5000, description: "Post-surgical medication" },
+        ],
+      },
     ],
   },
   {
@@ -1316,6 +1434,18 @@ const HOSPITAL_DEFS: HospitalDef[] = [
           },
         ],
       },
+      // ── Contextual rule: R-009 Tariff exceeded (maxPerService) ──
+      {
+        patientRef: "PAT-SYN-131",
+        diagnosis: "Aggressive lymphoma - intensive chemotherapy",
+        status: ClaimStatus.SUBMITTED,
+        submittedAt: "2026-08-11T09:00:00Z",
+        items: [
+          { code: "CHEMOTHERAPY", qty: 5, unitKes: 50000, description: "Intensive chemotherapy cycle" },
+          { code: "MRI", qty: 1, unitKes: 15000, description: "Treatment response MRI" },
+          { code: "SPECIALIST_CONSULT", qty: 3, unitKes: 1000, description: "Oncology consultations" },
+        ],
+      },
     ],
   },
   {
@@ -1384,6 +1514,17 @@ const HOSPITAL_DEFS: HospitalDef[] = [
           },
         ],
         review: { officer: "sarah", status: ReviewStatus.PENDING },
+      },
+      // ── Contextual rule: R-007 Equipment unavailability + R-012 Facility level mismatch ──
+      {
+        patientRef: "PAT-SYN-130",
+        diagnosis: "Post-delivery complications requiring advanced imaging",
+        status: ClaimStatus.SUBMITTED,
+        submittedAt: "2026-08-13T16:00:00Z",
+        items: [
+          { code: "CT_SCAN", qty: 1, unitKes: 8000, description: "Emergency CT scan" },
+          { code: "SPECIALIST_CONSULT", qty: 1, unitKes: 1000, description: "Specialist consultation" },
+        ],
       },
     ],
   },
@@ -1995,6 +2136,9 @@ const HOSPITAL_EQUIPMENT_DEFS: HospitalEquipmentDef[] = [
   { facilityIdentifier: "HOSP-102", equipmentCode: "ULTRASOUND", quantity: 1, operationalQuantity: 1, status: EquipmentStatus.OPERATIONAL },
   { facilityIdentifier: "HOSP-102", equipmentCode: "DEFIBRILLATOR", quantity: 1, operationalQuantity: 1, status: EquipmentStatus.OPERATIONAL },
   { facilityIdentifier: "HOSP-107", equipmentCode: "ULTRASOUND", quantity: 1, operationalQuantity: 1, status: EquipmentStatus.OPERATIONAL },
+  // Coast Medical Centre - basic equipment
+  { facilityIdentifier: "HOSP-002", equipmentCode: "X_RAY_MACHINE", quantity: 1, operationalQuantity: 1, status: EquipmentStatus.OPERATIONAL },
+  { facilityIdentifier: "HOSP-002", equipmentCode: "DEFIBRILLATOR", quantity: 1, operationalQuantity: 1, status: EquipmentStatus.OPERATIONAL },
 ]
 
 // ─── Hospital Staff mapping ──────────────────────────
@@ -2020,6 +2164,12 @@ const HOSPITAL_STAFF_DEFS: HospitalStaffDef[] = [
   { facilityIdentifier: "HOSP-107", staffCode: "PHYSICIAN", quantity: 1, activeQuantity: 1 },
   { facilityIdentifier: "HOSP-107", staffCode: "NURSE", quantity: 3, activeQuantity: 3 },
   { facilityIdentifier: "HOSP-107", staffCode: "PHARMACIST", quantity: 1, activeQuantity: 1 },
+  // Coast Medical Centre - health centre level staff
+  { facilityIdentifier: "HOSP-002", staffCode: "PHYSICIAN", quantity: 2, activeQuantity: 2 },
+  { facilityIdentifier: "HOSP-002", staffCode: "NURSE", quantity: 3, activeQuantity: 3 },
+  { facilityIdentifier: "HOSP-002", staffCode: "LAB_TECHNICIAN", quantity: 1, activeQuantity: 1 },
+  { facilityIdentifier: "HOSP-002", staffCode: "RADIOGRAPHER", quantity: 1, activeQuantity: 1 },
+  { facilityIdentifier: "HOSP-002", staffCode: "PHARMACIST", quantity: 1, activeQuantity: 1 },
   // Sub-county hospitals
   { facilityIdentifier: "HOSP-103", staffCode: "PHYSICIAN", quantity: 4, activeQuantity: 4 },
   { facilityIdentifier: "HOSP-103", staffCode: "SPECIALIST", quantity: 2, activeQuantity: 2 },
