@@ -76,11 +76,11 @@ export async function evaluateContextualRules(
       claimDate
     )
     if (equipmentSignals.length > 0) {
-      const triggered = equipmentSignals.some(s => s.severity === "HIGH" || s.severity === "CRITICAL")
+      const hasHighSeverity = equipmentSignals.some(s => s.severity === "HIGH" || s.severity === "CRITICAL")
       results.push({
         ruleCode: "R_007",
-        triggered,
-        scoreImpact: triggered ? RULE_SCORES["R_007"] : 0,
+        triggered: hasHighSeverity,
+        scoreImpact: hasHighSeverity ? RULE_SCORES["R_007"] : 0,
         signals: equipmentSignals,
       })
 
@@ -138,8 +138,6 @@ export async function evaluateContextualRules(
       claimDate
     )
     if (billingSignals.length > 0) {
-      const triggered = billingSignals.some(s => s.severity === "HIGH" || s.severity === "CRITICAL")
-
       const dailySignals = billingSignals.filter(s => s.signal === "DAILY_BILLING_LIMIT_EXCEEDED")
       if (dailySignals.length > 0) {
         results.push({
@@ -173,43 +171,62 @@ export async function evaluateContextualRules(
   }
 
   if (claim.patientId) {
-    const patientSignals = await evaluatePatientSignals(
-      claim.patientId,
-      claim.items[0]?.service.code ?? "",
-      claim.totalAmountCents,
-      claimDate
-    )
-    if (patientSignals.length > 0) {
-      const frequencySignals = patientSignals.filter(s => s.signal === "PATIENT_SERVICE_FREQUENCY_ANOMALY")
-      if (frequencySignals.length > 0) {
-        results.push({
-          ruleCode: "R_012",
-          triggered: true,
-          scoreImpact: RULE_SCORES["R_012"],
-          signals: frequencySignals,
-        })
-      }
+    const allFrequencySignals: ContextualRuleResult["signals"] = []
+    const allSpendingSignals: ContextualRuleResult["signals"] = []
 
-      const spendingSignals = patientSignals.filter(s => s.signal === "PATIENT_SPENDING_ANOMALY")
-      if (spendingSignals.length > 0) {
-        results.push({
-          ruleCode: "R_013",
-          triggered: true,
-          scoreImpact: RULE_SCORES["R_013"],
-          signals: spendingSignals,
-        })
+    for (const item of claim.items) {
+      const patientSignals = await evaluatePatientSignals(
+        claim.patientId,
+        item.service.code,
+        item.totalAmountCents,
+        claimDate
+      )
+
+      for (const sig of patientSignals) {
+        if (sig.signal === "PATIENT_SERVICE_FREQUENCY_ANOMALY") {
+          const exists = allFrequencySignals.some(
+            (s) => s.explanation === sig.explanation
+          )
+          if (!exists) allFrequencySignals.push(sig)
+        }
+        if (sig.signal === "PATIENT_SPENDING_ANOMALY") {
+          const exists = allSpendingSignals.some(
+            (s) => s.explanation === sig.explanation
+          )
+          if (!exists) allSpendingSignals.push(sig)
+        }
       }
+    }
+
+    if (allFrequencySignals.length > 0) {
+      results.push({
+        ruleCode: "R_012",
+        triggered: true,
+        scoreImpact: RULE_SCORES["R_012"],
+        signals: allFrequencySignals,
+      })
+    }
+
+    if (allSpendingSignals.length > 0) {
+      results.push({
+        ruleCode: "R_013",
+        triggered: true,
+        scoreImpact: RULE_SCORES["R_013"],
+        signals: allSpendingSignals,
+      })
     }
   }
 
+  const deduplicated = deduplicateResults(results)
+
   const ruleCodeToHyphen = (code: string) => code.replace("_", "-")
-  const ruleCodes = [...new Set(results.map(r => r.ruleCode))]
+  const ruleCodes = [...new Set(deduplicated.map(r => r.ruleCode))]
   const rules = await db.complianceRule.findMany({
     where: { code: { in: ruleCodes.map(ruleCodeToHyphen) } },
   })
   const ruleMap = new Map(rules.map(r => [r.code.replace("-", "_"), r.id]))
 
-  for (const result of results) {
+  for (const result of deduplicated) {
     const ruleId = ruleMap.get(result.ruleCode)
     if (!ruleId) continue
 
@@ -235,5 +252,38 @@ export async function evaluateContextualRules(
     })
   }
 
-  return results
+  return deduplicated
+}
+
+const SEVERITY_RANK: Record<string, number> = {
+  LOW: 0,
+  MEDIUM: 1,
+  HIGH: 2,
+  CRITICAL: 3,
+}
+
+function deduplicateResults(
+  results: ContextualRuleResult[]
+): ContextualRuleResult[] {
+  const byCode = new Map<string, ContextualRuleResult[]>()
+  for (const r of results) {
+    const existing = byCode.get(r.ruleCode) ?? []
+    existing.push(r)
+    byCode.set(r.ruleCode, existing)
+  }
+
+  const out: ContextualRuleResult[] = []
+  for (const [, group] of byCode) {
+    const best = group.reduce((a, b) => {
+      const aMax = Math.max(
+        ...a.signals.map((s) => SEVERITY_RANK[s.severity] ?? 0)
+      )
+      const bMax = Math.max(
+        ...b.signals.map((s) => SEVERITY_RANK[s.severity] ?? 0)
+      )
+      return bMax > aMax ? b : a
+    })
+    out.push(best)
+  }
+  return out
 }

@@ -114,7 +114,7 @@ export async function evaluatePatientSignals(
   patientId: string,
   serviceCode: string,
   claimAmountCents: number,
-  claimDate: Date = new Date()
+  _claimDate: Date = new Date()
 ): Promise<PatientSignal[]> {
   const history = await getPatientHistorySummary(patientId)
   const signals: PatientSignal[] = []

@@ -126,6 +126,7 @@ enum AlertType {
   CROSS_FACILITY_ANOMALY
   UNUSUAL_SERVICE_SEQUENCE
   HISTORICAL_BEHAVIOR_ANOMALY
+  FACILITY_SCOPE_BREACH
 }
 
 enum EquipmentStatus {
@@ -681,10 +682,24 @@ model ComplianceRule {
 
   evaluations ClaimRuleEvaluation[]
   findings    Finding[]
+  parameters  RuleParameter[]
 
   @@index([code])
   @@index([category])
   @@index([active])
+}
+
+model RuleParameter {
+  id               String   @id @default(cuid())
+  complianceRuleId String
+  complianceRule   ComplianceRule @relation(fields: [complianceRuleId], references: [id], onDelete: Cascade)
+  key              String
+  value            String
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  @@unique([complianceRuleId, key])
+  @@index([complianceRuleId])
 }
 
 model ClaimRuleEvaluation {

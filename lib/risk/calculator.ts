@@ -1,6 +1,8 @@
 import { createDbClient } from "@/lib/db"
 import type { RiskLevel } from "@/app/generated/prisma/enums"
 
+const CRITICAL_RULE_CODES = new Set(["R-001", "R-002", "R-007"])
+
 export async function calculateRiskScore(claimId: string) {
   const db = createDbClient()
 
@@ -21,12 +23,19 @@ export async function calculateRiskScore(claimId: string) {
   }> = []
 
   let totalScore = 0
+  let hasCriticalRule = false
 
   for (const eval_ of claim.ruleEvaluations) {
     const scoreImpact = eval_.scoreContribution
+    const code = eval_.complianceRule.code
+
+    if (CRITICAL_RULE_CODES.has(code) && scoreImpact >= 30) {
+      hasCriticalRule = true
+    }
+
     contributors.push({
       type: "RULE",
-      description: `Rule ${eval_.complianceRule.code} triggered with impact ${scoreImpact}`,
+      description: `Rule ${code} triggered with impact ${scoreImpact}`,
       scoreImpact,
     })
     totalScore += scoreImpact
@@ -44,16 +53,30 @@ export async function calculateRiskScore(claimId: string) {
     }
   }
 
+  if (claim.ruleEvaluations.length > 1) {
+    const multiRuleBonus = Math.min(claim.ruleEvaluations.length * 2, 10)
+    contributors.push({
+      type: "AGGREGATE",
+      description: `Multi-rule aggregate: ${claim.ruleEvaluations.length} rules triggered`,
+      scoreImpact: multiRuleBonus,
+    })
+    totalScore += multiRuleBonus
+  }
+
   totalScore = Math.min(totalScore, 100)
 
-  const level: RiskLevel =
-    totalScore >= 75
-      ? "CRITICAL"
-      : totalScore >= 50
-        ? "HIGH"
-        : totalScore >= 25
-          ? "MODERATE"
-          : "LOW"
+  let level: RiskLevel
+  if (hasCriticalRule) {
+    level = "CRITICAL"
+  } else if (totalScore >= 75) {
+    level = "CRITICAL"
+  } else if (totalScore >= 50) {
+    level = "HIGH"
+  } else if (totalScore >= 25) {
+    level = "MODERATE"
+  } else {
+    level = "LOW"
+  }
 
   const existing = await db.riskScore.findUnique({
     where: { claimId },

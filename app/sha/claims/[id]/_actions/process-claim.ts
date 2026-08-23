@@ -3,11 +3,7 @@
 import { revalidatePath } from "next/cache"
 import { requireRole } from "@/lib/auth/dal"
 import { createDbClient } from "@/lib/db"
-import { evaluateClaimRules } from "@/lib/rules/engine"
-import { evaluateContextualRules } from "@/lib/rules/contextual"
-import { analyzeClaim } from "@/lib/ai/claim-analyzer"
-import { calculateRiskScore } from "@/lib/risk/calculator"
-import { generateAlerts } from "@/lib/alerts/generator"
+import { processClaimPipeline } from "@/lib/rules/orchestrator"
 
 interface ProcessClaimInput {
   claimId: string
@@ -20,10 +16,6 @@ export async function processClaim(input: ProcessClaimInput) {
 
   const claim = await db.claim.findUnique({
     where: { id: input.claimId },
-    include: {
-      hospital: true,
-      riskScore: true,
-    },
   })
 
   if (!claim) {
@@ -45,145 +37,7 @@ export async function processClaim(input: ProcessClaimInput) {
     }
   }
 
-  // ─── Step 1: VALIDATING — Compliance rules ────
-  await db.claim.update({
-    where: { id: input.claimId },
-    data: { status: "VALIDATING" },
-  })
-
-  await db.auditLog.create({
-    data: {
-      userId: user.id,
-      action: "CLAIM_STATUS_CHANGED",
-      entityType: "Claim",
-      entityId: input.claimId,
-      metadata: { previousStatus: "RECEIVED", newStatus: "VALIDATING" },
-    },
-  })
-
-  await evaluateClaimRules(input.claimId)
-
-  await db.auditLog.create({
-    data: {
-      userId: user.id,
-      action: "RULES_EVALUATED",
-      entityType: "Claim",
-      entityId: input.claimId,
-    },
-  })
-
-  // ─── Step 1b: CONTEXTUAL — Equipment, tariff, capacity, billing ────
-  const contextualResults = await evaluateContextualRules(input.claimId)
-
-  await db.auditLog.create({
-    data: {
-      userId: user.id,
-      action: "CONTEXTUAL_RULES_EVALUATED",
-      entityType: "Claim",
-      entityId: input.claimId,
-      metadata: {
-        rulesEvaluated: contextualResults.length,
-        rulesTriggered: contextualResults.filter((r) => r.triggered).length,
-      },
-    },
-  })
-
-  // ─── Step 2: ANALYZING — AI analysis ────
-  await db.claim.update({
-    where: { id: input.claimId },
-    data: { status: "ANALYZING" },
-  })
-
-  await db.auditLog.create({
-    data: {
-      userId: user.id,
-      action: "CLAIM_STATUS_CHANGED",
-      entityType: "Claim",
-      entityId: input.claimId,
-      metadata: { previousStatus: "VALIDATING", newStatus: "ANALYZING" },
-    },
-  })
-
-  let aiAnalysisOk = true
-  try {
-    await analyzeClaim(input.claimId)
-
-    await db.auditLog.create({
-      data: {
-        userId: user.id,
-        action: "AI_ANALYSIS_COMPLETED",
-        entityType: "Claim",
-        entityId: input.claimId,
-      },
-    })
-  } catch (error) {
-    aiAnalysisOk = false
-    console.error("AI analysis failed:", error)
-    await db.auditLog.create({
-      data: {
-        userId: user.id,
-        action: "AI_ANALYSIS_FAILED",
-        entityType: "Claim",
-        entityId: input.claimId,
-        metadata: {
-          error: error instanceof Error ? error.message : "Unknown error",
-        },
-      },
-    })
-  }
-
-  // ─── Step 3: ASSESSED — Risk score ────
-  await db.claim.update({
-    where: { id: input.claimId },
-    data: { status: "ASSESSED" },
-  })
-
-  await db.auditLog.create({
-    data: {
-      userId: user.id,
-      action: "CLAIM_STATUS_CHANGED",
-      entityType: "Claim",
-      entityId: input.claimId,
-      metadata: { previousStatus: "ANALYZING", newStatus: "ASSESSED" },
-    },
-  })
-
-  const { totalScore, level } = await calculateRiskScore(input.claimId)
-
-  const shouldFlag = totalScore >= 50 || level === "HIGH" || level === "CRITICAL"
-  const finalStatus = shouldFlag ? "FLAGGED" : "CLEARED"
-
-  await db.claim.update({
-    where: { id: input.claimId },
-    data: { status: finalStatus as "FLAGGED" | "CLEARED" },
-  })
-
-  await db.auditLog.create({
-    data: {
-      userId: user.id,
-      action: "RISK_ASSESSED",
-      entityType: "Claim",
-      entityId: input.claimId,
-      metadata: {
-        riskScore: totalScore,
-        riskLevel: level,
-        finalStatus,
-        aiAnalysisOk,
-        contextualRulesTriggered: contextualResults.filter((r) => r.triggered).length,
-      },
-    },
-  })
-
-  await generateAlerts(input.claimId)
-
-  await db.auditLog.create({
-    data: {
-      userId: user.id,
-      action: "ALERTS_GENERATED",
-      entityType: "Claim",
-      entityId: input.claimId,
-    },
-  })
+  const result = await processClaimPipeline(input.claimId, user.id)
 
   revalidatePath(`/sha/claims/${input.claimId}`)
   revalidatePath("/sha/claims")
@@ -193,11 +47,11 @@ export async function processClaim(input: ProcessClaimInput) {
   revalidatePath("/hospital/claims")
 
   return {
-    success: true,
-    newStatus: finalStatus,
-    riskScore: totalScore,
-    riskLevel: level,
-    aiAnalysisOk,
-    contextualRulesTriggered: contextualResults.filter((r) => r.triggered).length,
+    success: result.success,
+    newStatus: result.newStatus,
+    riskScore: result.riskScore,
+    riskLevel: result.riskLevel,
+    aiAnalysisOk: result.aiAnalysisOk,
+    contextualRulesTriggered: result.contextualRulesTriggered,
   }
 }
