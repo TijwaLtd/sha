@@ -38,7 +38,7 @@ export async function processClaim(input: ProcessClaimInput) {
     return { success: false, error: "Claim already completed processing" }
   }
 
-  if (claim.status !== "RECEIVED") {
+  if (claim.status !== "RECEIVED" && claim.status !== "SUBMITTED") {
     return {
       success: false,
       error: `Cannot process claim in status: ${claim.status}`,

@@ -14,6 +14,8 @@ import {
 import { ClaimFilter } from "./_components/claim-filter"
 
 const statusColors: Record<string, string> = {
+  SUBMITTED:
+    "bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-300",
   RECEIVED:
     "bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-300",
   VALIDATING:
@@ -41,7 +43,7 @@ export default async function ClaimsPage({ searchParams }: ClaimsPageProps) {
 
   const where: Record<string, unknown> = {
     status: {
-      in: ["RECEIVED", "VALIDATING", "ANALYZING", "ASSESSED"],
+      in: ["SUBMITTED", "RECEIVED", "VALIDATING", "ANALYZING", "ASSESSED"],
     },
   }
 
