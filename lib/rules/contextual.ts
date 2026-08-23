@@ -54,119 +54,139 @@ export async function evaluateContextualRules(
   const results: ContextualRuleResult[] = []
 
   for (const item of claim.items) {
-    const capabilitySignals = await evaluateCapabilitySignals(
-      claim.hospitalId,
-      item.service.code,
-      claimDate
-    )
-    if (capabilitySignals.length > 0) {
-      const triggered = capabilitySignals.some(s => s.severity === "HIGH" || s.severity === "CRITICAL")
-      results.push({
-        ruleCode: "R_011",
-        triggered,
-        scoreImpact: triggered ? RULE_SCORES["R_011"] : 0,
-        signals: capabilitySignals,
-      })
-    }
-
-    const equipmentSignals = await evaluateEquipmentSignals(
-      claim.hospitalId,
-      item.serviceId,
-      item.quantity,
-      claimDate
-    )
-    if (equipmentSignals.length > 0) {
-      const hasHighSeverity = equipmentSignals.some(s => s.severity === "HIGH" || s.severity === "CRITICAL")
-      results.push({
-        ruleCode: "R_007",
-        triggered: hasHighSeverity,
-        scoreImpact: hasHighSeverity ? RULE_SCORES["R_007"] : 0,
-        signals: equipmentSignals,
-      })
-
-      const capacityExceeded = equipmentSignals.some(s => s.signal === "EQUIPMENT_CAPACITY_EXCEEDED")
-      if (capacityExceeded) {
+    try {
+      const capabilitySignals = await evaluateCapabilitySignals(
+        claim.hospitalId,
+        item.service.code,
+        claimDate
+      )
+      if (capabilitySignals.length > 0) {
+        const triggered = capabilitySignals.some(s => s.severity === "HIGH" || s.severity === "CRITICAL")
         results.push({
-          ruleCode: "R_008",
-          triggered: true,
-          scoreImpact: RULE_SCORES["R_008"],
-          signals: equipmentSignals.filter(s => s.signal === "EQUIPMENT_CAPACITY_EXCEEDED"),
+          ruleCode: "R_011",
+          triggered,
+          scoreImpact: triggered ? RULE_SCORES["R_011"] : 0,
+          signals: capabilitySignals,
         })
       }
+    } catch (e) {
+      console.error("Capability signals failed for item", item.service.code, e)
     }
 
-    const tariffSignals = await evaluateTariffSignals(
-      item.serviceId,
-      claim.hospital.facilityLevelId,
-      claim.hospitalId,
-      item.unitAmountCents,
-      item.quantity,
-      claimDate
-    )
-    if (tariffSignals.length > 0) {
-      const triggered = tariffSignals.some(s => s.severity === "HIGH" || s.severity === "CRITICAL")
-      results.push({
-        ruleCode: "R_010",
-        triggered,
-        scoreImpact: triggered ? RULE_SCORES["R_010"] : 0,
-        signals: tariffSignals,
-      })
-    }
-
-    const capacitySignals = await evaluateCapacitySignals(
-      claim.hospitalId,
-      item.serviceId,
-      item.quantity,
-      claimDate
-    )
-    if (capacitySignals.length > 0) {
-      const triggered = capacitySignals.some(s => s.severity === "HIGH" || s.severity === "CRITICAL")
-      results.push({
-        ruleCode: "R_009",
-        triggered,
-        scoreImpact: triggered ? RULE_SCORES["R_009"] : 0,
-        signals: capacitySignals,
-      })
-    }
-
-    const billingSignals = await evaluateBillingSignals(
-      claim.hospitalId,
-      claim.hospital.facilityLevelId,
-      item.serviceId,
-      item.totalAmountCents,
-      item.quantity,
-      claimDate
-    )
-    if (billingSignals.length > 0) {
-      const dailySignals = billingSignals.filter(s => s.signal === "DAILY_BILLING_LIMIT_EXCEEDED")
-      if (dailySignals.length > 0) {
+    try {
+      const equipmentSignals = await evaluateEquipmentSignals(
+        claim.hospitalId,
+        item.serviceId,
+        item.quantity,
+        claimDate
+      )
+      if (equipmentSignals.length > 0) {
+        const hasHighSeverity = equipmentSignals.some(s => s.severity === "HIGH" || s.severity === "CRITICAL")
         results.push({
-          ruleCode: "R_014",
-          triggered: true,
-          scoreImpact: RULE_SCORES["R_014"],
-          signals: dailySignals,
+          ruleCode: "R_007",
+          triggered: hasHighSeverity,
+          scoreImpact: hasHighSeverity ? RULE_SCORES["R_007"] : 0,
+          signals: equipmentSignals,
         })
-      }
 
-      const monthlySignals = billingSignals.filter(s => s.signal === "MONTHLY_BILLING_LIMIT_EXCEEDED")
-      if (monthlySignals.length > 0) {
-        results.push({
-          ruleCode: "R_015",
-          triggered: true,
-          scoreImpact: RULE_SCORES["R_015"],
-          signals: monthlySignals,
-        })
+        const capacityExceeded = equipmentSignals.some(s => s.signal === "EQUIPMENT_CAPACITY_EXCEEDED")
+        if (capacityExceeded) {
+          results.push({
+            ruleCode: "R_008",
+            triggered: true,
+            scoreImpact: RULE_SCORES["R_008"],
+            signals: equipmentSignals.filter(s => s.signal === "EQUIPMENT_CAPACITY_EXCEEDED"),
+          })
+        }
       }
+    } catch (e) {
+      console.error("Equipment signals failed for item", item.service.code, e)
+    }
 
-      const encounterSignals = billingSignals.filter(s => s.signal === "ENCOUNTER_BILLING_LIMIT_EXCEEDED")
-      if (encounterSignals.length > 0) {
+    try {
+      const tariffSignals = await evaluateTariffSignals(
+        item.serviceId,
+        claim.hospital.facilityLevelId,
+        claim.hospitalId,
+        item.unitAmountCents,
+        item.quantity,
+        claimDate
+      )
+      if (tariffSignals.length > 0) {
+        const triggered = tariffSignals.some(s => s.severity === "HIGH" || s.severity === "CRITICAL")
         results.push({
           ruleCode: "R_010",
-          triggered: true,
-          scoreImpact: RULE_SCORES["R_010"],
-          signals: encounterSignals,
+          triggered,
+          scoreImpact: triggered ? RULE_SCORES["R_010"] : 0,
+          signals: tariffSignals,
         })
       }
+    } catch (e) {
+      console.error("Tariff signals failed for item", item.service.code, e)
+    }
+
+    try {
+      const capacitySignals = await evaluateCapacitySignals(
+        claim.hospitalId,
+        item.serviceId,
+        item.quantity,
+        claimDate
+      )
+      if (capacitySignals.length > 0) {
+        const triggered = capacitySignals.some(s => s.severity === "HIGH" || s.severity === "CRITICAL")
+        results.push({
+          ruleCode: "R_009",
+          triggered,
+          scoreImpact: triggered ? RULE_SCORES["R_009"] : 0,
+          signals: capacitySignals,
+        })
+      }
+    } catch (e) {
+      console.error("Capacity signals failed for item", item.service.code, e)
+    }
+
+    try {
+      const billingSignals = await evaluateBillingSignals(
+        claim.hospitalId,
+        claim.hospital.facilityLevelId,
+        item.serviceId,
+        item.totalAmountCents,
+        item.quantity,
+        claimDate
+      )
+      if (billingSignals.length > 0) {
+        const dailySignals = billingSignals.filter(s => s.signal === "DAILY_BILLING_LIMIT_EXCEEDED")
+        if (dailySignals.length > 0) {
+          results.push({
+            ruleCode: "R_014",
+            triggered: true,
+            scoreImpact: RULE_SCORES["R_014"],
+            signals: dailySignals,
+          })
+        }
+
+        const monthlySignals = billingSignals.filter(s => s.signal === "MONTHLY_BILLING_LIMIT_EXCEEDED")
+        if (monthlySignals.length > 0) {
+          results.push({
+            ruleCode: "R_015",
+            triggered: true,
+            scoreImpact: RULE_SCORES["R_015"],
+            signals: monthlySignals,
+          })
+        }
+
+        const encounterSignals = billingSignals.filter(s => s.signal === "ENCOUNTER_BILLING_LIMIT_EXCEEDED")
+        if (encounterSignals.length > 0) {
+          results.push({
+            ruleCode: "R_010",
+            triggered: true,
+            scoreImpact: RULE_SCORES["R_010"],
+            signals: encounterSignals,
+          })
+        }
+      }
+    } catch (e) {
+      console.error("Billing signals failed for item", item.service.code, e)
     }
   }
 

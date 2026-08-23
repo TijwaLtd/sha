@@ -52,7 +52,23 @@ export async function processClaimPipeline(
     },
   })
 
-  const contextualResults = await evaluateContextualRules(claimId)
+  let contextualResults: Awaited<ReturnType<typeof evaluateContextualRules>> = []
+  try {
+    contextualResults = await evaluateContextualRules(claimId)
+  } catch (ctxError) {
+    console.error("Contextual rules failed:", ctxError)
+    await db.auditLog.create({
+      data: {
+        userId,
+        action: "CONTEXTUAL_RULES_FAILED",
+        entityType: "Claim",
+        entityId: claimId,
+        metadata: {
+          error: ctxError instanceof Error ? ctxError.message : "Unknown error",
+        },
+      },
+    })
+  }
 
   await db.auditLog.create({
     data: {
