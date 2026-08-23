@@ -202,12 +202,22 @@ export async function evaluateContextualRules(
     }
   }
 
+  const ruleCodeToHyphen = (code: string) => code.replace("_", "-")
+  const ruleCodes = [...new Set(results.map(r => r.ruleCode))]
+  const rules = await db.complianceRule.findMany({
+    where: { code: { in: ruleCodes.map(ruleCodeToHyphen) } },
+  })
+  const ruleMap = new Map(rules.map(r => [r.code.replace("-", "_"), r.id]))
+
   for (const result of results) {
+    const ruleId = ruleMap.get(result.ruleCode)
+    if (!ruleId) continue
+
     await db.claimRuleEvaluation.upsert({
       where: {
         claimId_complianceRuleId: {
           claimId,
-          complianceRuleId: result.ruleCode,
+          complianceRuleId: ruleId,
         },
       },
       update: {
@@ -217,7 +227,7 @@ export async function evaluateContextualRules(
       },
       create: {
         claimId,
-        complianceRuleId: result.ruleCode,
+        complianceRuleId: ruleId,
         triggered: result.triggered,
         scoreContribution: result.triggered ? result.scoreImpact : 0,
         explanation: JSON.stringify(result.signals),

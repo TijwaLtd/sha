@@ -114,6 +114,15 @@ const RULE_DEFS: RuleDef[] = [
   { code: "R-005", name: "Unusual Quantity", description: "A line item quantity exceeds 10", category: "AMOUNT", severity: FindingSeverity.MEDIUM, scoreContribution: 10 },
   { code: "R-006", name: "Diagnosis Mismatch", description: "Service does not match claimed diagnosis", category: "CLINICAL", severity: FindingSeverity.HIGH, scoreContribution: 20 },
   { code: "R-007", name: "Cross-Facility Duplicate Billing", description: "Same patient billed for the same service at a different facility within the review window", category: "CLAIM", severity: FindingSeverity.CRITICAL, scoreContribution: 35 },
+  { code: "R-008", name: "Equipment Not Available", description: "Required equipment not available or not operational at facility", category: "FACILITY", severity: FindingSeverity.HIGH, scoreContribution: 20 },
+  { code: "R-009", name: "Equipment Quota Exceeded", description: "Claimed quantity exceeds operational equipment count", category: "FACILITY", severity: FindingSeverity.HIGH, scoreContribution: 15 },
+  { code: "R-010", name: "Tariff Exceeded", description: "Unit amount exceeds configured tariff maximum", category: "AMOUNT", severity: FindingSeverity.MEDIUM, scoreContribution: 15 },
+  { code: "R-011", name: "Service Not Accredited", description: "Facility not accredited for the claimed service", category: "FACILITY", severity: FindingSeverity.HIGH, scoreContribution: 25 },
+  { code: "R-012", name: "Patient Service Frequency", description: "Patient received this service 5+ times in 90 days", category: "PATIENT", severity: FindingSeverity.MEDIUM, scoreContribution: 20 },
+  { code: "R-013", name: "Patient Spending Threshold", description: "Patient cumulative spending exceeded KES 50,000", category: "PATIENT", severity: FindingSeverity.MEDIUM, scoreContribution: 15 },
+  { code: "R-014", name: "Daily Billing Limit Exceeded", description: "Hospital daily billing total exceeds policy limit", category: "BILLING", severity: FindingSeverity.HIGH, scoreContribution: 20 },
+  { code: "R-015", name: "Monthly Billing Limit Exceeded", description: "Hospital monthly billing total exceeds policy limit", category: "BILLING", severity: FindingSeverity.MEDIUM, scoreContribution: 15 },
+  { code: "R-016", name: "Facility Scope Breach", description: "Service not allowed for this facility level", category: "FACILITY", severity: FindingSeverity.HIGH, scoreContribution: 10 },
 ]
 
 // ─── Facility Levels ──────────────────────────────────
