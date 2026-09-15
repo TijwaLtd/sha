@@ -7,9 +7,12 @@ export default defineConfig({
   schema: "prisma/schema.prisma",
   migrations: {
     path: "prisma/migrations",
-    seed: "npx tsx prisma/seed.ts",
+    seed: "npx tsx prisma/seed-frequency-constraints.ts",
   },
   datasource: {
     url: process.env["DATABASE_URL"],
   },
 })
+
+// Additional seed scripts for incremental updates
+// Run: npx tsx prisma/seed-rule-params.ts (to add missing rule parameters without deleting data)

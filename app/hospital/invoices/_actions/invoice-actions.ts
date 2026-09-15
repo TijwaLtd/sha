@@ -176,11 +176,36 @@ export async function submitClaim(input: SubmitClaimInput) {
     return { success: false, error: "Patient reference is required" }
   }
 
+  // Create or find patient record for cross-facility detection
+  let patient = await db.patient.findUnique({
+    where: { externalReference: claim.patientReference.trim() },
+  })
+
+  if (!patient) {
+    patient = await db.patient.create({
+      data: { externalReference: claim.patientReference.trim() },
+    })
+  }
+
+  // Create encounter record for the claim
+  const encounter = await db.encounter.create({
+    data: {
+      patientId: patient.id,
+      hospitalId: claim.hospitalId,
+      encounterDate: new Date(),
+      encounterType: "OUTPATIENT" as const,
+      diagnosis: claim.diagnosis,
+      status: "ACTIVE",
+    },
+  })
+
   await db.claim.update({
     where: { id: input.claimId },
     data: {
       status: "RECEIVED",
       submittedAt: new Date(),
+      patientId: patient.id,
+      encounterId: encounter.id,
     },
   })
 

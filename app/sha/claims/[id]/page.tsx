@@ -242,6 +242,9 @@ export default async function ClaimDetailPage({
               <div className="space-y-2">
                 {triggeredRules.map((e) => {
                   let explanation = ""
+                  let detailedMatches: any[] = []
+                  let periodViolations: any[] = []
+
                   try {
                     const parsed = JSON.parse(e.explanation ?? "{}")
                     if (Array.isArray(parsed)) {
@@ -251,6 +254,13 @@ export default async function ClaimDetailPage({
                         .join("; ")
                     } else if (parsed.note) {
                       explanation = parsed.note
+                    } else if (parsed.serviceSpecificMatches && e.complianceRule.code === "R-007") {
+                      // Handle R-007 detailed findings
+                      explanation = `Cross-facility duplicate detected for ${parsed.totalMatchedServices} service(s)`
+                      detailedMatches = parsed.serviceSpecificMatches || []
+                      periodViolations = parsed.periodViolations || []
+                    } else {
+                      explanation = e.explanation ?? ""
                     }
                   } catch {
                     explanation = e.explanation ?? ""
@@ -285,6 +295,36 @@ export default async function ClaimDetailPage({
                           {explanation}
                         </p>
                       ) : null}
+                      {detailedMatches.length > 0 && (
+                        <div className="mt-2 space-y-1">
+                          {detailedMatches.map((match, idx) => (
+                            <div key={idx} className="rounded bg-red-100 p-2 text-xs dark:bg-red-900">
+                              <p className="font-medium text-red-900 dark:text-red-100">
+                                {match.serviceCode}
+                              </p>
+                              {match.matchedClaims.map((claim: any, cIdx: number) => (
+                                <div key={cIdx} className="mt-1 text-red-800 dark:text-red-200">
+                                  <span>{claim.hospitalName}</span>
+                                  <span className="ml-2 text-muted-foreground">
+                                    ({Math.round(claim.daysBetween)} days ago)
+                                  </span>
+                                </div>
+                              ))}
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                      {periodViolations.length > 0 && (
+                        <div className="mt-2 space-y-1">
+                          {periodViolations.map((violation, idx) => (
+                            <div key={idx} className="rounded bg-orange-100 p-2 text-xs dark:bg-orange-900">
+                              <p className="font-medium text-orange-900 dark:text-orange-100">
+                                {violation.serviceCode}: {violation.actualClaims} claims in {violation.periodDays} days (max: {violation.maxClaims})
+                              </p>
+                            </div>
+                          ))}
+                        </div>
+                      )}
                     </div>
                   )
                 })}

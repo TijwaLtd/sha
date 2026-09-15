@@ -414,6 +414,7 @@ model Service {
   billingPolicies     BillingPolicy[]
   capacities          ServiceCapacity[]
   patientHistories    PatientServiceHistory[]
+  frequencyConstraints ServiceFrequencyConstraint[] @relation("ServiceFrequencyConstraints")
 
   @@index([category])
   @@index([serviceType])
@@ -1001,4 +1002,24 @@ model ServiceCapacity {
   @@unique([hospitalId, serviceId])
   @@index([hospitalId])
   @@index([serviceId])
+}
+
+// ─── Service Frequency Constraints ─────────────────────
+model ServiceFrequencyConstraint {
+  id                  String   @id @default(cuid())
+  serviceId           String
+  minDaysBetweenClaims Int     @default(0)      // Minimum days required between same-service claims
+  maxClaimsPerPeriod  Int?                      // Optional: max claims allowed in period
+  periodDays          Int?                      // Optional: period for max claims (e.g., 30 days)
+  severity            FindingSeverity @default(MEDIUM)
+  active              Boolean  @default(true)
+  notes               String?
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+
+  service Service @relation("ServiceFrequencyConstraints", fields: [serviceId], references: [id])
+
+  @@unique([serviceId])
+  @@index([serviceId])
+  @@index([active])
 }

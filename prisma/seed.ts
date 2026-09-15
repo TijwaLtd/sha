@@ -766,6 +766,14 @@ async function main() {
   const rules = await Promise.all(RULE_DEFS.map((r) => prisma.complianceRule.create({ data: r })))
   const ruleMap = Object.fromEntries(rules.map((r) => [r.code, r])) as Record<string, RuleWithId>
 
+  // ─── Rule parameters ────────────────────────────────────
+  await Promise.all([
+    prisma.ruleParameter.create({ data: { complianceRuleId: ruleMap["R-003"].id, key: "lookbackDays", value: "5" } }),
+    prisma.ruleParameter.create({ data: { complianceRuleId: ruleMap["R-007"].id, key: "lookbackDays", value: "7" } }),
+    prisma.ruleParameter.create({ data: { complianceRuleId: ruleMap["R-004"].id, key: "thresholdCents", value: "75000000" } }),
+    prisma.ruleParameter.create({ data: { complianceRuleId: ruleMap["R-005"].id, key: "maxQuantity", value: "10" } }),
+  ])
+
   await Promise.all(
     SERVICE_REQUIREMENT_DEFS.map((sr) =>
       prisma.serviceRequirement.create({

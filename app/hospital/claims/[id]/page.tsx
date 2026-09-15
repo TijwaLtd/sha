@@ -14,6 +14,7 @@ import {
 } from "@/components/ui/card"
 import { Separator } from "@/components/ui/separator"
 import { ArrowLeft, CheckCircle2, Clock, AlertTriangle } from "lucide-react"
+import { Suspense } from "react"
 
 const statusColors: Record<string, string> = {
   SUBMITTED:
@@ -138,6 +139,31 @@ export default async function ClaimDetailPage({
             </CardHeader>
             <CardContent>
               <p className="text-sm">{claim.diagnosis}</p>
+            </CardContent>
+          </Card>
+        ) : null}
+
+        {["FLAGGED", "UNDER_REVIEW"].includes(claim.status) ? (
+          <Card>
+            <CardHeader className="pb-2">
+              <CardTitle className="text-sm">Review Status</CardTitle>
+              <CardDescription className="text-xs">
+                This claim is being reviewed by SHA officers
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <div className="flex items-start gap-2">
+                <AlertTriangle className="mt-0.5 h-4 w-4 text-orange-600" />
+                <div>
+                  <p className="text-sm font-medium">
+                    {claim.status === "FLAGGED" && "Claim flagged for compliance review"}
+                    {claim.status === "UNDER_REVIEW" && "Claim under investigation"}
+                  </p>
+                  <p className="text-xs text-muted-foreground mt-1">
+                    SHA officers will review this claim and provide additional information if needed.
+                  </p>
+                </div>
+              </div>
             </CardContent>
           </Card>
         ) : null}

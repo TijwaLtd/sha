@@ -51,6 +51,7 @@ export async function evaluateClaimRules(claimId: string) {
       claimId,
       hospitalId: claim.hospitalId,
       patientId: claim.patientId,
+      patientReference: claim.patientReference,
       submittedAt: claim.submittedAt ?? claim.createdAt,
       hospital: claim.hospital,
       items: claim.items.map((item) => ({
@@ -104,6 +105,7 @@ async function evaluateRule(
     claimId: string
     hospitalId: string
     patientId: string | null
+    patientReference: string
     submittedAt: Date
     hospital: {
       status: string
@@ -221,45 +223,148 @@ async function evaluateRule(
       const cutoff = new Date(claim.submittedAt)
       cutoff.setDate(cutoff.getDate() - lookbackDays)
 
-      if (!claim.patientId) {
-        return { triggered: false, details: { note: "No patient ID — cannot check cross-facility" } }
+      // Use patientId if available, otherwise use patientReference for lookup
+      const patientIdentifier = claim.patientId
+      const usePatientReference = !patientIdentifier
+
+      if (!patientIdentifier && !claim.patientReference) {
+        return { triggered: false, details: { note: "No patient ID or reference — cannot check cross-facility" } }
       }
 
       const serviceIds = claim.items.map((i) => i.serviceId)
 
-      const crossFacilityClaims = await db.claim.findMany({
+      // Get service-specific frequency constraints
+      const frequencyConstraints = await db.serviceFrequencyConstraint.findMany({
         where: {
-          patientId: claim.patientId,
-          hospitalId: { not: claim.hospitalId },
-          id: { not: claim.claimId },
-          status: { notIn: ["DRAFT"] },
-          submittedAt: { gte: cutoff },
-          items: { some: { serviceId: { in: serviceIds } } },
-        },
-        include: {
-          hospital: { select: { name: true, facilityIdentifier: true } },
-          items: { select: { serviceId: true, service: { select: { code: true } }, totalAmountCents: true } },
+          serviceId: { in: serviceIds },
+          active: true,
         },
       })
 
-      const matchedClaims = crossFacilityClaims.map((c) => ({
-        claimId: c.id,
-        reference: c.reference,
-        hospitalName: c.hospital.name,
-        facilityIdentifier: c.hospital.facilityIdentifier,
-        submittedAt: c.submittedAt,
-        services: c.items.map((i) => i.service.code),
-        totalAmountCents: c.totalAmountCents,
-      }))
+      const constraintMap = new Map(
+        frequencyConstraints.map((fc) => [fc.serviceId, fc])
+      )
+
+      // For each service, use its specific constraint or default lookback
+      const serviceSpecificMatches: Array<{
+        serviceId: string
+        serviceCode: string
+        matchedClaims: Array<{
+          claimId: string
+          reference: string
+          hospitalName: string
+          facilityIdentifier: string
+          submittedAt: Date
+          daysBetween: number
+        }>
+      }> = []
+
+      for (const item of claim.items) {
+        const constraint = constraintMap.get(item.serviceId)
+        const serviceLookbackDays = constraint?.minDaysBetweenClaims || lookbackDays
+        const serviceCutoff = new Date(claim.submittedAt)
+        serviceCutoff.setDate(serviceCutoff.getDate() - serviceLookbackDays)
+
+        // Build where clause based on available patient identifier
+        const whereClause: any = {
+          hospitalId: { not: claim.hospitalId },
+          id: { not: claim.claimId },
+          status: { notIn: ["DRAFT"] },
+          submittedAt: { not: null, gte: serviceCutoff },
+          items: { some: { serviceId: item.serviceId } },
+        }
+
+        if (usePatientReference) {
+          whereClause.patientReference = claim.patientReference
+        } else {
+          whereClause.patientId = claim.patientId
+        }
+
+        const crossFacilityClaims = await db.claim.findMany({
+          where: whereClause,
+          include: {
+            hospital: { select: { name: true, facilityIdentifier: true } },
+          },
+        })
+
+        if (crossFacilityClaims.length > 0) {
+          serviceSpecificMatches.push({
+            serviceId: item.serviceId,
+            serviceCode: item.serviceCode,
+            matchedClaims: crossFacilityClaims.map((c) => ({
+              claimId: c.id,
+              reference: c.reference,
+              hospitalName: c.hospital.name,
+              facilityIdentifier: c.hospital.facilityIdentifier,
+              submittedAt: c.submittedAt ?? c.createdAt,
+              daysBetween: Math.abs(
+                (claim.submittedAt.getTime() -
+                  (c.submittedAt ?? c.createdAt).getTime()) /
+                  (1000 * 60 * 60 * 24)
+              ),
+            })),
+          })
+        }
+      }
+
+      // Check max claims per period if configured
+      const periodViolations: Array<{
+        serviceId: string
+        serviceCode: string
+        maxClaims: number
+        periodDays: number
+        actualClaims: number
+      }> = []
+
+      for (const [serviceId, constraint] of constraintMap) {
+        if (constraint.maxClaimsPerPeriod && constraint.periodDays) {
+          const periodCutoff = new Date(claim.submittedAt)
+          periodCutoff.setDate(periodCutoff.getDate() - constraint.periodDays)
+
+          const periodWhereClause: any = {
+            hospitalId: { not: claim.hospitalId },
+            id: { not: claim.claimId },
+            status: { notIn: ["DRAFT"] },
+            submittedAt: { gte: periodCutoff },
+            items: { some: { serviceId } },
+          }
+
+          if (usePatientReference) {
+            periodWhereClause.patientReference = claim.patientReference
+          } else {
+            periodWhereClause.patientId = claim.patientId
+          }
+
+          const claimsInPeriod = await db.claim.count({
+            where: periodWhereClause,
+          })
+
+          if (claimsInPeriod >= constraint.maxClaimsPerPeriod) {
+            const serviceCode = claim.items.find((i) => i.serviceId === serviceId)?.serviceCode || "UNKNOWN"
+            periodViolations.push({
+              serviceId,
+              serviceCode,
+              maxClaims: constraint.maxClaimsPerPeriod,
+              periodDays: constraint.periodDays,
+              actualClaims: claimsInPeriod,
+            })
+          }
+        }
+      }
+
+      const triggered = serviceSpecificMatches.length > 0 || periodViolations.length > 0
 
       return {
-        triggered: crossFacilityClaims.length > 0,
+        triggered,
         details: {
           lookbackDays,
           cutoffDate: cutoff.toISOString(),
-          patientReference: claim.patientId,
-          matchCount: crossFacilityClaims.length,
-          matchedClaims,
+          patientIdentifier: usePatientReference ? claim.patientReference : claim.patientId,
+          identifierType: usePatientReference ? "patientReference" : "patientId",
+          serviceSpecificMatches,
+          periodViolations,
+          totalMatchedServices: serviceSpecificMatches.length,
+          totalPeriodViolations: periodViolations.length,
         },
       }
     }

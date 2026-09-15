@@ -9,7 +9,9 @@
     "start": "next start",
     "lint": "eslint",
     "format": "prettier --write \"**/*.{ts,tsx}\"",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "seed": "prisma db seed",
+    "seed:rule-params": "npx tsx prisma/seed-rule-params.ts"
   },
   "dependencies": {
     "@base-ui/react": "^1.7.0",
