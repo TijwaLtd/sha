@@ -2,8 +2,7 @@ import { Suspense } from "react"
 import { requireRole } from "@/lib/auth/dal"
 import { createDbClient } from "@/lib/db"
 import { AlertSummaryCards } from "./_components/alert-summary-cards"
-import { AlertList } from "./_components/alert-list"
-import { AlertFilters } from "./_components/alert-filters"
+import { AlertListing } from "./_components/alert-list"
 
 interface AlertsPageProps {
   searchParams: Promise<{
@@ -72,17 +71,20 @@ export default async function AlertsPage({ searchParams }: AlertsPageProps) {
   return (
     <div className="p-4 md:p-6">
       <div className="mx-auto max-w-5xl space-y-6">
-        <div>
-          <h1 className="text-xl font-semibold">Alerts</h1>
-          <p className="text-sm text-muted-foreground">
-            Monitor and manage compliance alerts
-          </p>
-        </div>
-
         <AlertSummaryCards {...summaryData} />
 
-        <Suspense fallback={<div>Loading filters...</div>}>
-          <AlertFilters
+        <Suspense fallback={<div>Loading alerts...</div>}>
+          <AlertListing
+            alerts={alerts.map((a) => ({
+              ...a,
+              createdAt: a.createdAt,
+              metadata:
+                a.metadata &&
+                typeof a.metadata === "object" &&
+                !Array.isArray(a.metadata)
+                  ? (a.metadata as Record<string, unknown>)
+                  : null,
+            }))}
             currentFilters={{
               status: params.status || "",
               severity: params.severity || "",
@@ -90,19 +92,6 @@ export default async function AlertsPage({ searchParams }: AlertsPageProps) {
             }}
           />
         </Suspense>
-
-        <AlertList
-          alerts={alerts.map((a) => ({
-            ...a,
-            createdAt: a.createdAt,
-            metadata:
-              a.metadata &&
-              typeof a.metadata === "object" &&
-              !Array.isArray(a.metadata)
-                ? (a.metadata as Record<string, unknown>)
-                : null,
-          }))}
-        />
       </div>
     </div>
   )

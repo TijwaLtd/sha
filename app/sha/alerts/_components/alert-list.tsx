@@ -2,17 +2,35 @@
 
 import { useState } from "react"
 import Link from "next/link"
-import { Building2, User } from "lucide-react"
+import { useRouter, useSearchParams } from "next/navigation"
+import {
+  BellRing,
+  Building2,
+  CheckCircle2,
+  Eye,
+  User,
+  XCircle,
+} from "lucide-react"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
-import { Card, CardContent } from "@/components/ui/card"
+import {
+  ResponsiveDataListing,
+  type ColumnDef,
+  type FilterConfig,
+  type ListingGroup,
+} from "@/components/shared/responsive-data-listing"
+import type { CardAction } from "@/components/shared/responsive-mobile-card"
 import {
   acknowledgeAlert,
   dismissAlert,
   resolveAlert,
   startReview,
 } from "../_actions/alert-actions"
-import type { AlertStatus, AlertType, FindingSeverity } from "@/app/generated/prisma/enums"
+import type {
+  AlertStatus,
+  AlertType,
+  FindingSeverity,
+} from "@/app/generated/prisma/enums"
 import { formatKES } from "@/lib/money"
 
 interface ClaimInfo {
@@ -38,17 +56,13 @@ interface Alert {
   hospital: { name: string; facilityIdentifier: string | null } | null
 }
 
-interface AlertListProps {
+interface AlertListingProps {
   alerts: Alert[]
-}
-
-interface AlertGroup {
-  key: string
-  patientLabel: string
-  patientId: string | null
-  facilities: string[]
-  worstSeverity: FindingSeverity
-  items: Alert[]
+  currentFilters: {
+    status: string
+    severity: string
+    type: string
+  }
 }
 
 interface ServiceMatch {
@@ -71,17 +85,17 @@ interface PeriodViolation {
   actualClaims: number
 }
 
-interface DuplicateClaim {
-  reference: string
-  submittedAt: Date | string
-  services: string[]
-  totalAmountCents: number
-}
-
 interface Signal {
   signal: string
   severity?: string
   explanation?: string
+}
+
+interface ActionDef {
+  key: "acknowledge" | "review" | "resolve" | "dismiss"
+  label: string
+  icon: React.ComponentType<{ className?: string }>
+  variant: "default" | "outline" | "ghost"
 }
 
 const severityColors: Record<FindingSeverity, string> = {
@@ -106,68 +120,22 @@ const SEVERITY_RANK: Record<FindingSeverity, number> = {
   CRITICAL: 4,
 }
 
-export function AlertList({ alerts }: AlertListProps) {
-  const [loading, setLoading] = useState<string | null>(null)
+const STATUS_OPTIONS: Array<{ label: string; value: string }> = [
+  "OPEN",
+  "ACKNOWLEDGED",
+  "UNDER_REVIEW",
+  "RESOLVED",
+  "DISMISSED",
+].map((s) => ({ label: s.replace("_", " "), value: s }))
 
-  async function handleAction(alertId: string, action: string) {
-    setLoading(alertId)
-    try {
-      switch (action) {
-        case "acknowledge":
-          await acknowledgeAlert(alertId)
-          break
-        case "review":
-          await startReview(alertId)
-          break
-        case "resolve":
-          await resolveAlert(alertId)
-          break
-        case "dismiss":
-          await dismissAlert(alertId, "No action required")
-          break
-      }
-    } finally {
-      setLoading(null)
-    }
-  }
+const SEVERITY_OPTIONS: Array<{ label: string; value: string }> = [
+  "CRITICAL",
+  "HIGH",
+  "MEDIUM",
+  "LOW",
+].map((s) => ({ label: s, value: s }))
 
-  if (alerts.length === 0) {
-    return (
-      <Card>
-        <CardContent className="py-12 text-center text-muted-foreground">
-          No alerts match the current filters.
-        </CardContent>
-      </Card>
-    )
-  }
-
-  const groups = buildGroups(alerts)
-
-  return (
-    <div className="space-y-4">
-      {groups.map((group) => (
-        <section
-          key={group.key}
-          className="overflow-hidden rounded-lg border shadow-sm"
-        >
-          <GroupHeader group={group} />
-          <div className="divide-y divide-border bg-background">
-            {group.items.map((alert) => (
-              <AlertItem
-                key={alert.id}
-                alert={alert}
-                loading={loading === alert.id}
-                onAction={handleAction}
-              />
-            ))}
-          </div>
-        </section>
-      ))}
-    </div>
-  )
-}
-
-// ─── Grouping helpers ──────────────────────────────────
+// ─── Helpers ───────────────────────────────────────────
 
 function toArray<T>(value: unknown): T[] {
   return Array.isArray(value) ? (value as T[]) : []
@@ -184,9 +152,15 @@ function getPatientIdentifier(alert: Alert): {
       ? metadata.patientIdentifier
       : null
 
-  if (patientReference) return { label: patientReference, id: alert.claim?.patientId ?? null }
-  if (patientIdentifier) return { label: patientIdentifier, id: alert.claim?.patientId ?? null }
-  if (alert.claim?.patientId) return { label: `PID ${alert.claim.patientId.slice(0, 8)}`, id: alert.claim.patientId }
+  if (patientReference) {
+    return { label: patientReference, id: alert.claim?.patientId ?? null }
+  }
+  if (patientIdentifier) {
+    return { label: patientIdentifier, id: alert.claim?.patientId ?? null }
+  }
+  if (alert.claim?.patientId) {
+    return { label: `PID ${alert.claim.patientId.slice(0, 8)}`, id: alert.claim.patientId }
+  }
   return { label: "", id: null }
 }
 
@@ -221,400 +195,95 @@ function worstSeverity(items: Alert[]): FindingSeverity {
   )
 }
 
-function buildGroups(alerts: Alert[]): AlertGroup[] {
-  const buckets = new Map<string, Alert[]>()
-  for (const alert of alerts) {
-    const key = patientGroupKey(alert)
-    const bucket = buckets.get(key) ?? []
-    bucket.push(alert)
-    buckets.set(key, bucket)
-  }
-
-  return [...buckets.entries()]
-    .map(([key, items]) => {
-      const { label, id } = getPatientIdentifier(items[0])
-      return {
-        key,
-        patientLabel: label || "No patient linked",
-        patientId: id,
-        facilities: collectFacilities(items),
-        worstSeverity: worstSeverity(items),
-        items: sortAlerts(items),
-      }
-    })
-    .sort((a, b) => {
-      const bySeverity =
-        SEVERITY_RANK[b.worstSeverity] - SEVERITY_RANK[a.worstSeverity]
-      if (bySeverity !== 0) return bySeverity
-      const aLatest = Math.max(...a.items.map((i) => i.createdAt.getTime()))
-      const bLatest = Math.max(...b.items.map((i) => i.createdAt.getTime()))
-      return bLatest - aLatest
-    })
-}
-
-function sortAlerts(items: Alert[]): Alert[] {
-  return [...items].sort((a, b) => {
-    const bySeverity = SEVERITY_RANK[b.severity] - SEVERITY_RANK[a.severity]
-    if (bySeverity !== 0) return bySeverity
-    return b.createdAt.getTime() - a.createdAt.getTime()
-  })
-}
-
-// ─── Group header ──────────────────────────────────────
-
-function GroupHeader({ group }: { group: AlertGroup }) {
-  return (
-    <header className="flex flex-wrap items-center justify-between gap-3 bg-muted/50 px-4 py-3">
-      <div className="flex items-center gap-3">
-        <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-primary/10">
-          <User className="h-4 w-4 text-primary" />
-        </span>
-        <div>
-          <p className="text-sm font-semibold leading-tight">
-            {group.patientLabel}
-          </p>
-          <p className="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-xs text-muted-foreground">
-            {group.patientId && <span>{group.patientId.slice(0, 8)}</span>}
-            {group.patientId && group.facilities.length > 0 && <span>·</span>}
-            {group.facilities.map((facility) => (
-              <span key={facility} className="inline-flex items-center gap-1">
-                <Building2 className="h-3 w-3" />
-                {facility}
-              </span>
-            ))}
-          </p>
-        </div>
-      </div>
-      <div className="flex items-center gap-2">
-        <Badge className={severityColors[group.worstSeverity]}>
-          {group.worstSeverity}
-        </Badge>
-        <Badge variant="secondary">
-          {group.items.length} alert{group.items.length === 1 ? "" : "s"}
-        </Badge>
-      </div>
-    </header>
-  )
-}
-
-// ─── Single alert inside a group ───────────────────────
-
-function AlertItem({
-  alert,
-  loading,
-  onAction,
-}: {
-  alert: Alert
-  loading: boolean
-  onAction: (alertId: string, action: string) => void
-}) {
-  return (
-    <div className="px-4 py-3">
-      <div className="flex items-start justify-between gap-3">
-        <div className="space-y-1">
-          <div className="flex flex-wrap items-center gap-2">
-            <Badge className={severityColors[alert.severity]}>
-              {alert.severity}
-            </Badge>
-            <Badge className={statusColors[alert.status]}>
-              {alert.status.replace("_", " ")}
-            </Badge>
-            <Badge variant="outline">
-              {alert.type.replace(/_/g, " ")}
-            </Badge>
-            <span className="text-xs text-muted-foreground">
-              {alert.source}
-            </span>
-          </div>
-          <p className="text-sm font-medium">{alert.title}</p>
-        </div>
-        <div className="shrink-0 text-right text-xs">
-          {alert.claim && (
-            <Link
-              href={`/sha/claims/${alert.claimId}`}
-              className="font-medium text-primary underline-offset-4 hover:underline"
-            >
-              {alert.claim.reference}
-            </Link>
-          )}
-          <p className="text-muted-foreground">{formatDate(alert.createdAt)}</p>
-        </div>
-      </div>
-
-      {alert.description && (
-        <p className="mt-1 text-sm text-foreground">{alert.description}</p>
-      )}
-
-      <div className="mt-3">
-        <TriggerDetails alert={alert} />
-      </div>
-
-      {alert.status !== "RESOLVED" && alert.status !== "DISMISSED" && (
-        <div className="mt-3 flex flex-wrap gap-2">
-          {alert.status === "OPEN" && (
-            <>
-              <Button
-                size="sm"
-                variant="outline"
-                disabled={loading}
-                onClick={() => onAction(alert.id, "acknowledge")}
-              >
-                Acknowledge
-              </Button>
-              <Button
-                size="sm"
-                disabled={loading}
-                onClick={() => onAction(alert.id, "review")}
-              >
-                Start Review
-              </Button>
-            </>
-          )}
-          {alert.status === "ACKNOWLEDGED" && (
-            <Button
-              size="sm"
-              disabled={loading}
-              onClick={() => onAction(alert.id, "review")}
-            >
-              Start Review
-            </Button>
-          )}
-          {(alert.status === "UNDER_REVIEW" ||
-            alert.status === "ACKNOWLEDGED") && (
-            <>
-              <Button
-                size="sm"
-                variant="default"
-                disabled={loading}
-                onClick={() => onAction(alert.id, "resolve")}
-              >
-                Resolve
-              </Button>
-              <Button
-                size="sm"
-                variant="ghost"
-                disabled={loading}
-                onClick={() => onAction(alert.id, "dismiss")}
-              >
-                Dismiss
-              </Button>
-            </>
-          )}
-        </div>
-      )}
-    </div>
-  )
-}
-
-// ─── Trigger details ("why") ───────────────────────────
-
-function TriggerDetails({ alert }: { alert: Alert }) {
+function whyText(alert: Alert): string | null {
   const metadata = alert.metadata ?? {}
 
-  if (alert.type === "CROSS_FACILITY_ANOMALY") {
-    const matches = toArray<ServiceMatch>(metadata.serviceSpecificMatches)
-    const violations = toArray<PeriodViolation>(metadata.periodViolations)
-    if (matches.length === 0 && violations.length === 0) return null
-
-    return (
-      <div className="rounded-md border bg-muted/40 p-3">
-        <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-          Cross-facility activity for this patient
-        </p>
-        <div className="space-y-2">
-          {matches.map((match) =>
-            match.matchedClaims.map((mc) => (
-              <div
-                key={mc.claimId}
-                className="flex items-center justify-between gap-3 rounded-md border bg-background px-3 py-2"
-              >
-                <div>
-                  <p className="text-sm font-medium">{match.serviceCode}</p>
-                  <p className="text-xs text-muted-foreground">
-                    Same service claimed at{" "}
-                    <span className="font-medium text-foreground">
-                      {mc.hospitalName}
-                    </span>{" "}
-                    · {formatDays(mc.daysBetween)}
-                  </p>
-                </div>
-                <div className="text-right text-xs">
-                  <p className="font-medium">claim {mc.reference}</p>
-                  <p className="text-muted-foreground">
-                    {formatDate(mc.submittedAt)}
-                  </p>
-                </div>
-              </div>
-            ))
-          )}
-          {violations.map((v, idx) => (
-            <div
-              key={idx}
-              className="rounded-md border border-amber-300 bg-background px-3 py-2 text-xs"
-            >
-              <span className="font-medium">{v.serviceCode}</span>:{" "}
-              {v.actualClaims} claims in {v.periodDays} days (allowed:{" "}
-              {v.maxClaims})
-            </div>
-          ))}
-        </div>
-      </div>
-    )
-  }
-
-  if (alert.type === "DUPLICATE_CLAIM") {
-    const duplicates = toArray<DuplicateClaim>(metadata.matchedClaims)
-    if (duplicates.length === 0) return null
-
-    return (
-      <div className="rounded-md border bg-muted/40 p-3">
-        <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-          Matching claim(s) at the same facility
-        </p>
-        <div className="space-y-2">
-          {duplicates.map((dup, idx) => (
-            <div
-              key={idx}
-              className="flex items-center justify-between gap-3 rounded-md border bg-background px-3 py-2"
-            >
-              <div>
-                <p className="text-sm font-medium">
-                  claim {dup.reference}
-                  {dup.services.length > 0 && (
-                    <span className="ml-2 text-xs font-normal text-muted-foreground">
-                      {dup.services.join(", ")}
-                    </span>
-                  )}
-                </p>
-                <p className="text-xs text-muted-foreground">
-                  {formatDate(dup.submittedAt)}
-                </p>
-              </div>
-              {dup.totalAmountCents > 0 && (
-                <p className="text-xs font-medium">
-                  {formatKES(dup.totalAmountCents)}
-                </p>
-              )}
-            </div>
-          ))}
-        </div>
-      </div>
-    )
+  if (alert.type === "AI_REVIEW_REQUIRED") {
+    const explanation =
+      typeof metadata.explanation === "string" ? metadata.explanation : null
+    const findingType =
+      typeof metadata.findingType === "string" ? metadata.findingType : null
+    return explanation || findingType || alert.description
   }
 
   if (alert.type === "HIGH_RISK_CLAIM") {
     const riskScore = metadata.riskScore
-    if (typeof riskScore !== "number") return null
-    return (
-      <div className="rounded-md border bg-muted/40 p-3">
-        <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-          Risk assessment
-        </p>
-        <p className="mt-1 text-sm">
-          Risk score <span className="font-semibold">{riskScore}</span>
-          {typeof metadata.riskLevel === "string" &&
-            ` (${metadata.riskLevel})`}
-        </p>
-      </div>
-    )
-  }
-
-  if (alert.type === "FACILITY_VERIFICATION") {
-    const status =
-      typeof metadata.verificationStatus === "string"
-        ? metadata.verificationStatus
-        : null
-    return (
-      <div className="rounded-md border bg-muted/40 p-3">
-        <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-          Why this was raised
-        </p>
-        <p className="text-sm">
-          Claim was submitted by a facility that is not verified to bill SHA.
-          {status && (
-            <span className="ml-1 font-medium">
-              Facility status: {status}
-            </span>
-          )}
-        </p>
-      </div>
-    )
+    if (typeof riskScore === "number") {
+      const level =
+        typeof metadata.riskLevel === "string" ? metadata.riskLevel : null
+      return `Risk score ${riskScore}${level ? ` (${level})` : ""}`
+    }
   }
 
   if (alert.type === "SERVICE_MISMATCH") {
     const missing = toArray<string>(metadata.missingServices)
-    if (missing.length === 0) return null
-    return (
-      <div className="rounded-md border bg-muted/40 p-3">
-        <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-          Services not authorized for this facility
-        </p>
-        <div className="flex flex-wrap gap-2">
-          {missing.map((service, idx) => (
-            <Badge key={idx} variant="outline">
-              {service}
-            </Badge>
-          ))}
-        </div>
-      </div>
-    )
+    if (missing.length > 0) return `Services not authorized: ${missing.join(", ")}`
   }
 
-  if (alert.type === "AI_REVIEW_REQUIRED") {
-    const findingType =
-      typeof metadata.findingType === "string" ? metadata.findingType : null
-    const confidence =
-      typeof metadata.confidence === "number" ? metadata.confidence : null
-    const explanation =
-      typeof metadata.explanation === "string" ? metadata.explanation : null
-    if (!findingType && !explanation) return null
-    return (
-      <div className="rounded-md border bg-muted/40 p-3">
-        <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-          AI finding
-        </p>
-        <p className="text-sm">{explanation || findingType}</p>
-        {(findingType || confidence !== null) && (
-          <div className="mt-2 flex flex-wrap gap-2">
-            {findingType && <Badge variant="outline">{findingType}</Badge>}
-            {confidence !== null && (
-              <Badge variant="secondary">
-                Confidence {Math.round(confidence * 100)}%
-              </Badge>
-            )}
-          </div>
-        )}
-      </div>
-    )
+  if (alert.type === "FACILITY_VERIFICATION") {
+    return "Submitted by a facility that is not verified to bill SHA."
+  }
+
+  if (alert.type === "CROSS_FACILITY_ANOMALY") {
+    const matches = toArray<ServiceMatch>(metadata.serviceSpecificMatches)
+    const violations = toArray<PeriodViolation>(metadata.periodViolations)
+    const counts = [matches.length, violations.length]
+    const total = counts.reduce((sum, n) => sum + n, 0)
+    if (total > 0) {
+      return `Same service claimed across facilities: ${total} match${total === 1 ? "" : "es"}`
+    }
   }
 
   const signals = toArray<Signal>(metadata.signals)
   if (signals.length > 0) {
-    return (
-      <div className="rounded-md border bg-muted/40 p-3">
-        <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-          Why this was raised
-        </p>
-        <ul className="space-y-1.5">
-          {signals.map((signal, idx) => (
-            <li key={idx} className="flex items-start gap-2 text-sm">
-              <span className="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full bg-primary" />
-              <span>
-                {signal.explanation || signal.signal}
-                {signal.severity && (
-                  <span className="ml-2 text-xs text-muted-foreground">
-                    {signal.severity}
-                  </span>
-                )}
-              </span>
-            </li>
-          ))}
-        </ul>
-      </div>
-    )
+    const first = signals.find((s) => s.explanation)
+    if (first?.explanation) return first.explanation
   }
 
-  return null
+  return alert.description
+}
+
+function actionDefs(alert: Alert): ActionDef[] {
+  if (alert.status === "RESOLVED" || alert.status === "DISMISSED") return []
+
+  const defs: ActionDef[] = []
+  if (alert.status === "OPEN") {
+    defs.push({
+      key: "acknowledge",
+      label: "Acknowledge",
+      icon: CheckCircle2,
+      variant: "outline",
+    })
+    defs.push({
+      key: "review",
+      label: "Start Review",
+      icon: Eye,
+      variant: "default",
+    })
+  }
+  if (alert.status === "ACKNOWLEDGED") {
+    defs.push({
+      key: "review",
+      label: "Start Review",
+      icon: Eye,
+      variant: "default",
+    })
+  }
+  if (alert.status === "UNDER_REVIEW" || alert.status === "ACKNOWLEDGED") {
+    defs.push({
+      key: "resolve",
+      label: "Resolve",
+      icon: CheckCircle2,
+      variant: "default",
+    })
+    defs.push({
+      key: "dismiss",
+      label: "Dismiss",
+      icon: XCircle,
+      variant: "ghost",
+    })
+  }
+  return defs
 }
 
 function formatDate(value: Date | string | null | undefined): string {
@@ -623,7 +292,278 @@ function formatDate(value: Date | string | null | undefined): string {
   return date.toLocaleDateString("en-KE")
 }
 
-function formatDays(days: number): string {
-  const rounded = Math.round(days)
-  return `${rounded} day${rounded === 1 ? "" : "s"} earlier`
+// ─── Listing ───────────────────────────────────────────
+
+export function AlertListing({ alerts, currentFilters }: AlertListingProps) {
+  const router = useRouter()
+  const searchParams = useSearchParams()
+  const [loading, setLoading] = useState<string | null>(null)
+
+  function setFilter(key: string, value: string) {
+    const params = new URLSearchParams(searchParams.toString())
+    if (value) {
+      params.set(key, value)
+    } else {
+      params.delete(key)
+    }
+    router.push(`?${params.toString()}`)
+  }
+
+  async function handleAction(alertId: string, action: string) {
+    setLoading(alertId)
+    try {
+      switch (action) {
+        case "acknowledge":
+          await acknowledgeAlert(alertId)
+          break
+        case "review":
+          await startReview(alertId)
+          break
+        case "resolve":
+          await resolveAlert(alertId)
+          break
+        case "dismiss":
+          await dismissAlert(alertId, "No action required")
+          break
+      }
+    } finally {
+      setLoading(null)
+      router.refresh()
+    }
+  }
+
+  const typeOptions = [...new Set(alerts.map((a) => a.type))]
+    .sort()
+    .map((t) => ({ label: t.replace(/_/g, " "), value: t }))
+
+  const filters: FilterConfig[] = [
+    {
+      key: "status",
+      label: "Status",
+      value: currentFilters.status,
+      onChange: (value) => setFilter("status", value),
+      options: STATUS_OPTIONS,
+    },
+    {
+      key: "severity",
+      label: "Severity",
+      value: currentFilters.severity,
+      onChange: (value) => setFilter("severity", value),
+      options: SEVERITY_OPTIONS,
+    },
+    {
+      key: "type",
+      label: "Type",
+      value: currentFilters.type,
+      onChange: (value) => setFilter("type", value),
+      options: typeOptions,
+    },
+  ]
+
+  const columns: ColumnDef<Alert>[] = [
+    {
+      header: "Severity",
+      cell: (a) => (
+        <Badge className={severityColors[a.severity]}>{a.severity}</Badge>
+      ),
+    },
+    {
+      header: "Status",
+      cell: (a) => (
+        <Badge className={statusColors[a.status]}>
+          {a.status.replace("_", " ")}
+        </Badge>
+      ),
+    },
+    {
+      header: "Type",
+      cell: (a) => (
+        <span className="text-xs font-medium">{a.type.replace(/_/g, " ")}</span>
+      ),
+    },
+    {
+      header: "Patient",
+      cell: (a) => {
+        const { label, id } = getPatientIdentifier(a)
+        return (
+          <div className="space-y-0.5">
+            <p className="font-medium">{label || "—"}</p>
+            {id && (
+              <p className="font-mono text-xs text-muted-foreground">
+                {id.slice(0, 8)}
+              </p>
+            )}
+          </div>
+        )
+      },
+    },
+    {
+      header: "Claim",
+      cell: (a) =>
+        a.claim && a.claimId ? (
+          <div className="space-y-0.5">
+            <Link
+              href={`/sha/claims/${a.claimId}`}
+              className="text-xs font-semibold text-primary hover:underline"
+            >
+              {a.claim.reference}
+            </Link>
+            {a.claim.totalAmountCents > 0 && (
+              <p className="text-xs text-muted-foreground">
+                {formatKES(a.claim.totalAmountCents)}
+              </p>
+            )}
+          </div>
+        ) : (
+          <span className="text-xs text-muted-foreground">—</span>
+        ),
+    },
+    {
+      header: "Facility",
+      cell: (a) =>
+        a.hospital ? (
+          <div className="space-y-0.5">
+            <p className="text-xs font-medium">{a.hospital.name}</p>
+            {a.hospital.facilityIdentifier && (
+              <p className="font-mono text-xs text-muted-foreground">
+                {a.hospital.facilityIdentifier}
+              </p>
+            )}
+          </div>
+        ) : (
+          <span className="text-xs text-muted-foreground">—</span>
+        ),
+    },
+    {
+      header: "Raised",
+      cell: (a) => (
+        <span className="text-xs text-muted-foreground">
+          {formatDate(a.createdAt)}
+        </span>
+      ),
+    },
+    {
+      header: "Actions",
+      className: "w-64",
+      cell: (a) => (
+        <div className="flex flex-wrap gap-1.5">
+          {actionDefs(a).map((def) => {
+            const Icon = def.icon
+            return (
+              <Button
+                key={def.key}
+                size="sm"
+                variant={def.variant}
+                disabled={loading === a.id}
+                onClick={() => handleAction(a.id, def.key)}
+                className="h-7 px-2 text-[11px] gap-1"
+              >
+                <Icon className="h-3 w-3" />
+                {def.label}
+              </Button>
+            )
+          })}
+        </div>
+      ),
+    },
+  ]
+
+  function toCardActions(a: Alert): CardAction[] {
+    return actionDefs(a).map((def) => ({
+      label: def.label,
+      icon: def.icon,
+      variant: def.variant,
+      onClick: () => handleAction(a.id, def.key),
+    }))
+  }
+
+  function renderGroupHeader(group: ListingGroup<Alert>) {
+    const { label, id } = getPatientIdentifier(group.items[0])
+    const facilities = collectFacilities(group.items)
+    const severity = worstSeverity(group.items)
+    return (
+      <div className="flex flex-wrap items-center justify-between gap-2 normal-case tracking-normal">
+        <div className="flex flex-wrap items-center gap-x-2 gap-y-1 min-w-0">
+          <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-primary/10">
+            <User className="h-3.5 w-3.5 text-primary" />
+          </span>
+          <span className="text-sm font-semibold">
+            {label || "No patient linked"}
+          </span>
+          {id && (
+            <span className="font-mono text-xs text-muted-foreground">
+              {id.slice(0, 8)}
+            </span>
+          )}
+          {facilities.map((facility) => (
+            <span
+              key={facility}
+              className="inline-flex items-center gap-1 text-xs text-muted-foreground"
+            >
+              <Building2 className="h-3 w-3" />
+              {facility}
+            </span>
+          ))}
+        </div>
+        <div className="flex items-center gap-2">
+          <Badge className={severityColors[severity]}>{severity}</Badge>
+          <Badge variant="secondary">
+            {group.items.length} alert{group.items.length === 1 ? "" : "s"}
+          </Badge>
+        </div>
+      </div>
+    )
+  }
+
+  return (
+    <ResponsiveDataListing<Alert>
+      title="Alerts"
+      description="Monitor and manage compliance alerts"
+      items={alerts}
+      columns={columns}
+      cardMapper={{
+        id: (a) => a.id,
+        title: (a) => a.title,
+        subtitle: (a) =>
+          a.claim ? a.claim.reference : a.hospital?.name ?? undefined,
+        fallbackIcon: () => <BellRing className="h-5 w-5" />,
+        statusBadge: (a) => (
+          <Badge className={severityColors[a.severity]}>{a.severity}</Badge>
+        ),
+        detailFields: (a) => {
+          const { label, id } = getPatientIdentifier(a)
+          const fields = [
+            { label: "Type", value: a.type.replace(/_/g, " ") },
+            { label: "Status", value: a.status.replace("_", " ") },
+            { label: "Patient", value: label || "—" },
+            { label: "Facility", value: a.hospital?.name ?? "—" },
+          ]
+          if (id) fields.push({ label: "Patient ID", value: id.slice(0, 8) })
+          if (a.claim?.submittedAt) {
+            fields.push({ label: "Submitted", value: formatDate(a.claim.submittedAt) })
+          }
+          if (a.claim && a.claim.totalAmountCents > 0) {
+            fields.push({ label: "Amount", value: formatKES(a.claim.totalAmountCents) })
+          }
+          fields.push({ label: "Raised", value: formatDate(a.createdAt) })
+          return fields
+        },
+        description: (a) => whyText(a),
+        actions: (a) => toCardActions(a),
+        detailHref: (a) => (a.claimId ? `/sha/claims/${a.claimId}` : undefined),
+      }}
+      loading={false}
+      filters={filters}
+      groupBy={{
+        key: (a) => patientGroupKey(a),
+        header: (group) => renderGroupHeader(group),
+      }}
+      emptyState={{
+        icon: BellRing,
+        title: "No alerts",
+        description: "No alerts match the current filters.",
+      }}
+      rowKey={(a) => a.id}
+    />
+  )
 }
