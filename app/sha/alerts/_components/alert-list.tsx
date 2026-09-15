@@ -2,10 +2,10 @@
 
 import { useState } from "react"
 import Link from "next/link"
-import { User, Building2, FileText, ShieldAlert } from "lucide-react"
+import { Building2, User } from "lucide-react"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
+import { Card, CardContent } from "@/components/ui/card"
 import {
   acknowledgeAlert,
   dismissAlert,
@@ -40,6 +40,15 @@ interface Alert {
 
 interface AlertListProps {
   alerts: Alert[]
+}
+
+interface AlertGroup {
+  key: string
+  patientLabel: string
+  patientId: string | null
+  facilities: string[]
+  worstSeverity: FindingSeverity
+  items: Alert[]
 }
 
 interface ServiceMatch {
@@ -90,19 +99,11 @@ const statusColors: Record<AlertStatus, string> = {
   DISMISSED: "bg-gray-100 text-gray-800",
 }
 
-function formatDate(value: Date | string | null | undefined): string {
-  if (!value) return "—"
-  const date = typeof value === "string" ? new Date(value) : value
-  return date.toLocaleDateString("en-KE")
-}
-
-function toArray<T>(value: unknown): T[] {
-  return Array.isArray(value) ? (value as T[]) : []
-}
-
-function formatDays(days: number): string {
-  const rounded = Math.round(days)
-  return `${rounded} day${rounded === 1 ? "" : "s"} earlier`
+const SEVERITY_RANK: Record<FindingSeverity, number> = {
+  LOW: 1,
+  MEDIUM: 2,
+  HIGH: 3,
+  CRITICAL: 4,
 }
 
 export function AlertList({ alerts }: AlertListProps) {
@@ -140,21 +141,165 @@ export function AlertList({ alerts }: AlertListProps) {
     )
   }
 
+  const groups = buildGroups(alerts)
+
   return (
-    <div className="space-y-3">
-      {alerts.map((alert) => (
-        <AlertCard
-          key={alert.id}
-          alert={alert}
-          loading={loading === alert.id}
-          onAction={handleAction}
-        />
+    <div className="space-y-4">
+      {groups.map((group) => (
+        <section
+          key={group.key}
+          className="overflow-hidden rounded-lg border shadow-sm"
+        >
+          <GroupHeader group={group} />
+          <div className="divide-y divide-border bg-background">
+            {group.items.map((alert) => (
+              <AlertItem
+                key={alert.id}
+                alert={alert}
+                loading={loading === alert.id}
+                onAction={handleAction}
+              />
+            ))}
+          </div>
+        </section>
       ))}
     </div>
   )
 }
 
-function AlertCard({
+// ─── Grouping helpers ──────────────────────────────────
+
+function toArray<T>(value: unknown): T[] {
+  return Array.isArray(value) ? (value as T[]) : []
+}
+
+function getPatientIdentifier(alert: Alert): {
+  label: string
+  id: string | null
+} {
+  const metadata = alert.metadata ?? {}
+  const patientReference = alert.claim?.patientReference
+  const patientIdentifier =
+    typeof metadata.patientIdentifier === "string"
+      ? metadata.patientIdentifier
+      : null
+
+  if (patientReference) return { label: patientReference, id: alert.claim?.patientId ?? null }
+  if (patientIdentifier) return { label: patientIdentifier, id: alert.claim?.patientId ?? null }
+  if (alert.claim?.patientId) return { label: `PID ${alert.claim.patientId.slice(0, 8)}`, id: alert.claim.patientId }
+  return { label: "", id: null }
+}
+
+function patientGroupKey(alert: Alert): string {
+  const { label, id } = getPatientIdentifier(alert)
+  if (id) return `patient:${id}`
+  if (label) return `patient:ref:${label}`
+  return `facility:${alert.hospital?.name ?? "unknown"}`
+}
+
+function collectFacilities(items: Alert[]): string[] {
+  const seen = new Set<string>()
+  for (const alert of items) {
+    if (alert.hospital?.name) seen.add(alert.hospital.name)
+    const metadata = alert.metadata ?? {}
+    for (const match of toArray<ServiceMatch>(metadata.serviceSpecificMatches)) {
+      for (const mc of match.matchedClaims) {
+        if (mc.hospitalName) seen.add(mc.hospitalName)
+      }
+    }
+  }
+  return [...seen]
+}
+
+function worstSeverity(items: Alert[]): FindingSeverity {
+  return items.reduce<FindingSeverity>(
+    (worst, alert) =>
+      SEVERITY_RANK[alert.severity] > SEVERITY_RANK[worst]
+        ? alert.severity
+        : worst,
+    items[0]?.severity ?? "LOW"
+  )
+}
+
+function buildGroups(alerts: Alert[]): AlertGroup[] {
+  const buckets = new Map<string, Alert[]>()
+  for (const alert of alerts) {
+    const key = patientGroupKey(alert)
+    const bucket = buckets.get(key) ?? []
+    bucket.push(alert)
+    buckets.set(key, bucket)
+  }
+
+  return [...buckets.entries()]
+    .map(([key, items]) => {
+      const { label, id } = getPatientIdentifier(items[0])
+      return {
+        key,
+        patientLabel: label || "No patient linked",
+        patientId: id,
+        facilities: collectFacilities(items),
+        worstSeverity: worstSeverity(items),
+        items: sortAlerts(items),
+      }
+    })
+    .sort((a, b) => {
+      const bySeverity =
+        SEVERITY_RANK[b.worstSeverity] - SEVERITY_RANK[a.worstSeverity]
+      if (bySeverity !== 0) return bySeverity
+      const aLatest = Math.max(...a.items.map((i) => i.createdAt.getTime()))
+      const bLatest = Math.max(...b.items.map((i) => i.createdAt.getTime()))
+      return bLatest - aLatest
+    })
+}
+
+function sortAlerts(items: Alert[]): Alert[] {
+  return [...items].sort((a, b) => {
+    const bySeverity = SEVERITY_RANK[b.severity] - SEVERITY_RANK[a.severity]
+    if (bySeverity !== 0) return bySeverity
+    return b.createdAt.getTime() - a.createdAt.getTime()
+  })
+}
+
+// ─── Group header ──────────────────────────────────────
+
+function GroupHeader({ group }: { group: AlertGroup }) {
+  return (
+    <header className="flex flex-wrap items-center justify-between gap-3 bg-muted/50 px-4 py-3">
+      <div className="flex items-center gap-3">
+        <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-primary/10">
+          <User className="h-4 w-4 text-primary" />
+        </span>
+        <div>
+          <p className="text-sm font-semibold leading-tight">
+            {group.patientLabel}
+          </p>
+          <p className="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-xs text-muted-foreground">
+            {group.patientId && <span>{group.patientId.slice(0, 8)}</span>}
+            {group.patientId && group.facilities.length > 0 && <span>·</span>}
+            {group.facilities.map((facility) => (
+              <span key={facility} className="inline-flex items-center gap-1">
+                <Building2 className="h-3 w-3" />
+                {facility}
+              </span>
+            ))}
+          </p>
+        </div>
+      </div>
+      <div className="flex items-center gap-2">
+        <Badge className={severityColors[group.worstSeverity]}>
+          {group.worstSeverity}
+        </Badge>
+        <Badge variant="secondary">
+          {group.items.length} alert{group.items.length === 1 ? "" : "s"}
+        </Badge>
+      </div>
+    </header>
+  )
+}
+
+// ─── Single alert inside a group ───────────────────────
+
+function AlertItem({
   alert,
   loading,
   onAction,
@@ -163,133 +308,59 @@ function AlertCard({
   loading: boolean
   onAction: (alertId: string, action: string) => void
 }) {
-  const metadata = alert.metadata ?? {}
-
-  const patientReference =
-    alert.claim?.patientReference ||
-    (typeof metadata.patientIdentifier === "string"
-      ? metadata.patientIdentifier
-      : "") ||
-    (alert.claim?.patientId ? `PID ${alert.claim.patientId.slice(0, 8)}` : "")
-
   return (
-    <Card>
-      <CardHeader className="pb-3">
-        <div className="flex items-start justify-between gap-4">
-          <div className="space-y-1">
-            <div className="flex flex-wrap items-center gap-2">
-              <Badge className={severityColors[alert.severity]}>
-                {alert.severity}
-              </Badge>
-              <Badge className={statusColors[alert.status]}>
-                {alert.status.replace("_", " ")}
-              </Badge>
-              <Badge variant="outline">{alert.type.replace(/_/g, " ")}</Badge>
-            </div>
-            <CardTitle className="text-base">{alert.title}</CardTitle>
+    <div className="px-4 py-3">
+      <div className="flex items-start justify-between gap-3">
+        <div className="space-y-1">
+          <div className="flex flex-wrap items-center gap-2">
+            <Badge className={severityColors[alert.severity]}>
+              {alert.severity}
+            </Badge>
+            <Badge className={statusColors[alert.status]}>
+              {alert.status.replace("_", " ")}
+            </Badge>
+            <Badge variant="outline">
+              {alert.type.replace(/_/g, " ")}
+            </Badge>
+            <span className="text-xs text-muted-foreground">
+              {alert.source}
+            </span>
           </div>
-          <div className="shrink-0 text-right text-sm text-muted-foreground">
-            {formatDate(alert.createdAt)}
-          </div>
+          <p className="text-sm font-medium">{alert.title}</p>
         </div>
-      </CardHeader>
-
-      <CardContent className="space-y-4">
-        {alert.description && (
-          <p className="text-sm text-foreground">{alert.description}</p>
-        )}
-
-        <div className="grid grid-cols-2 gap-3 rounded-md border bg-muted/30 p-3 text-sm md:grid-cols-4">
-          <div className="flex items-start gap-2">
-            <User className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />
-            <div>
-              <p className="text-xs font-medium text-muted-foreground">
-                Patient Ref
-              </p>
-              <p className="font-medium">{patientReference || "—"}</p>
-              {alert.claim?.patientId && (
-                <p className="text-xs text-muted-foreground">
-                  {alert.claim.patientId.slice(0, 8)}
-                </p>
-              )}
-            </div>
-          </div>
-
-          <div className="flex items-start gap-2">
-            <Building2 className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />
-            <div>
-              <p className="text-xs font-medium text-muted-foreground">
-                Facility
-              </p>
-              <p className="font-medium">{alert.hospital?.name || "—"}</p>
-              {alert.hospital?.facilityIdentifier && (
-                <p className="text-xs text-muted-foreground">
-                  {alert.hospital.facilityIdentifier}
-                </p>
-              )}
-            </div>
-          </div>
-
-          <div className="flex items-start gap-2">
-            <FileText className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />
-            <div>
-              <p className="text-xs font-medium text-muted-foreground">
-                Claim
-              </p>
-              {alert.claim ? (
-                <Link
-                  href={`/sha/claims/${alert.claimId}`}
-                  className="font-medium text-primary underline-offset-4 hover:underline"
-                >
-                  {alert.claim.reference}
-                </Link>
-              ) : (
-                <p className="font-medium">—</p>
-              )}
-              {alert.claim?.submittedAt && (
-                <p className="text-xs text-muted-foreground">
-                  {formatDate(alert.claim.submittedAt)} ·{" "}
-                  {formatKES(alert.claim.totalAmountCents)}
-                </p>
-              )}
-            </div>
-          </div>
-
-          <div className="flex items-start gap-2">
-            <ShieldAlert className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />
-            <div>
-              <p className="text-xs font-medium text-muted-foreground">
-                Source
-              </p>
-              <p className="font-medium">{alert.source}</p>
-            </div>
-          </div>
+        <div className="shrink-0 text-right text-xs">
+          {alert.claim && (
+            <Link
+              href={`/sha/claims/${alert.claimId}`}
+              className="font-medium text-primary underline-offset-4 hover:underline"
+            >
+              {alert.claim.reference}
+            </Link>
+          )}
+          <p className="text-muted-foreground">{formatDate(alert.createdAt)}</p>
         </div>
+      </div>
 
+      {alert.description && (
+        <p className="mt-1 text-sm text-foreground">{alert.description}</p>
+      )}
+
+      <div className="mt-3">
         <TriggerDetails alert={alert} />
+      </div>
 
-        {alert.status !== "RESOLVED" && alert.status !== "DISMISSED" && (
-          <div className="flex flex-wrap gap-2">
-            {alert.status === "OPEN" && (
-              <>
-                <Button
-                  size="sm"
-                  variant="outline"
-                  disabled={loading}
-                  onClick={() => onAction(alert.id, "acknowledge")}
-                >
-                  Acknowledge
-                </Button>
-                <Button
-                  size="sm"
-                  disabled={loading}
-                  onClick={() => onAction(alert.id, "review")}
-                >
-                  Start Review
-                </Button>
-              </>
-            )}
-            {alert.status === "ACKNOWLEDGED" && (
+      {alert.status !== "RESOLVED" && alert.status !== "DISMISSED" && (
+        <div className="mt-3 flex flex-wrap gap-2">
+          {alert.status === "OPEN" && (
+            <>
+              <Button
+                size="sm"
+                variant="outline"
+                disabled={loading}
+                onClick={() => onAction(alert.id, "acknowledge")}
+              >
+                Acknowledge
+              </Button>
               <Button
                 size="sm"
                 disabled={loading}
@@ -297,34 +368,45 @@ function AlertCard({
               >
                 Start Review
               </Button>
-            )}
-            {(alert.status === "UNDER_REVIEW" ||
-              alert.status === "ACKNOWLEDGED") && (
-              <>
-                <Button
-                  size="sm"
-                  variant="default"
-                  disabled={loading}
-                  onClick={() => onAction(alert.id, "resolve")}
-                >
-                  Resolve
-                </Button>
-                <Button
-                  size="sm"
-                  variant="ghost"
-                  disabled={loading}
-                  onClick={() => onAction(alert.id, "dismiss")}
-                >
-                  Dismiss
-                </Button>
-              </>
-            )}
-          </div>
-        )}
-      </CardContent>
-    </Card>
+            </>
+          )}
+          {alert.status === "ACKNOWLEDGED" && (
+            <Button
+              size="sm"
+              disabled={loading}
+              onClick={() => onAction(alert.id, "review")}
+            >
+              Start Review
+            </Button>
+          )}
+          {(alert.status === "UNDER_REVIEW" ||
+            alert.status === "ACKNOWLEDGED") && (
+            <>
+              <Button
+                size="sm"
+                variant="default"
+                disabled={loading}
+                onClick={() => onAction(alert.id, "resolve")}
+              >
+                Resolve
+              </Button>
+              <Button
+                size="sm"
+                variant="ghost"
+                disabled={loading}
+                onClick={() => onAction(alert.id, "dismiss")}
+              >
+                Dismiss
+              </Button>
+            </>
+          )}
+        </div>
+      )}
+    </div>
   )
 }
+
+// ─── Trigger details ("why") ───────────────────────────
 
 function TriggerDetails({ alert }: { alert: Alert }) {
   const metadata = alert.metadata ?? {}
@@ -429,8 +511,7 @@ function TriggerDetails({ alert }: { alert: Alert }) {
           Risk assessment
         </p>
         <p className="mt-1 text-sm">
-          Risk score{" "}
-          <span className="font-semibold">{riskScore}</span>
+          Risk score <span className="font-semibold">{riskScore}</span>
           {typeof metadata.riskLevel === "string" &&
             ` (${metadata.riskLevel})`}
         </p>
@@ -495,9 +576,7 @@ function TriggerDetails({ alert }: { alert: Alert }) {
         <p className="text-sm">{explanation || findingType}</p>
         {(findingType || confidence !== null) && (
           <div className="mt-2 flex flex-wrap gap-2">
-            {findingType && (
-              <Badge variant="outline">{findingType}</Badge>
-            )}
+            {findingType && <Badge variant="outline">{findingType}</Badge>}
             {confidence !== null && (
               <Badge variant="secondary">
                 Confidence {Math.round(confidence * 100)}%
@@ -518,10 +597,7 @@ function TriggerDetails({ alert }: { alert: Alert }) {
         </p>
         <ul className="space-y-1.5">
           {signals.map((signal, idx) => (
-            <li
-              key={idx}
-              className="flex items-start gap-2 text-sm"
-            >
+            <li key={idx} className="flex items-start gap-2 text-sm">
               <span className="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full bg-primary" />
               <span>
                 {signal.explanation || signal.signal}
@@ -539,4 +615,15 @@ function TriggerDetails({ alert }: { alert: Alert }) {
   }
 
   return null
+}
+
+function formatDate(value: Date | string | null | undefined): string {
+  if (!value) return "—"
+  const date = typeof value === "string" ? new Date(value) : value
+  return date.toLocaleDateString("en-KE")
+}
+
+function formatDays(days: number): string {
+  const rounded = Math.round(days)
+  return `${rounded} day${rounded === 1 ? "" : "s"} earlier`
 }
