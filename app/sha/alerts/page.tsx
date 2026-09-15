@@ -32,8 +32,16 @@ export default async function AlertsPage({ searchParams }: AlertsPageProps) {
         { createdAt: "desc" },
       ],
       include: {
-        claim: { select: { reference: true } },
-        hospital: { select: { name: true } },
+        claim: {
+          select: {
+            reference: true,
+            patientReference: true,
+            patientId: true,
+            submittedAt: true,
+            totalAmountCents: true,
+          },
+        },
+        hospital: { select: { name: true, facilityIdentifier: true } },
       },
     }),
     db.alert.groupBy({
@@ -87,6 +95,12 @@ export default async function AlertsPage({ searchParams }: AlertsPageProps) {
           alerts={alerts.map((a) => ({
             ...a,
             createdAt: a.createdAt,
+            metadata:
+              a.metadata &&
+              typeof a.metadata === "object" &&
+              !Array.isArray(a.metadata)
+                ? (a.metadata as Record<string, unknown>)
+                : null,
           }))}
         />
       </div>

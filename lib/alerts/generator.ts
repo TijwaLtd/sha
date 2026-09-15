@@ -13,75 +13,68 @@ interface AlertInput {
   metadata?: Record<string, unknown>
 }
 
-const CONTEXTUAL_RULE_ALERT_MAP: Record<
-  string,
-  { type: AlertType; titleFn: (ref: string, hospital: string) => string; descFn: (ref: string, hospital: string, explanation: string) => string }
-> = {
-  R_007: {
-    type: "EQUIPMENT_UNAVAILABLE",
-    titleFn: (_ref, hospital) => `Equipment unavailable: ${hospital}`,
-    descFn: (ref, hospital, exp) =>
-      `Claim ${ref} from ${hospital}: required equipment not available. ${exp}`,
-  },
-  R_008: {
-    type: "EQUIPMENT_CAPACITY_EXCEEDED",
-    titleFn: (_ref, hospital) => `Equipment capacity exceeded: ${hospital}`,
-    descFn: (ref, hospital, exp) =>
-      `Claim ${ref} from ${hospital}: claimed quantity exceeds operational equipment count. ${exp}`,
-  },
-  R_009: {
-    type: "SERVICE_CAPACITY_EXCEEDED",
-    titleFn: (_ref, hospital) => `Service capacity exceeded: ${hospital}`,
-    descFn: (ref, hospital, exp) =>
-      `Claim ${ref} from ${hospital}: service capacity limit exceeded. ${exp}`,
-  },
-  R_010: {
-    type: "TARIFF_EXCEEDED",
-    titleFn: (_ref, hospital) => `Tariff exceeded: ${hospital}`,
-    descFn: (ref, hospital, exp) =>
-      `Claim ${ref} from ${hospital}: billed amount exceeds configured tariff. ${exp}`,
-  },
-  R_011: {
-    type: "SERVICE_NOT_ACCREDITED",
-    titleFn: (_ref, hospital) => `Service not accredited: ${hospital}`,
-    descFn: (ref, hospital, exp) =>
-      `Claim ${ref} from ${hospital}: facility not accredited for the claimed service. ${exp}`,
-  },
-  R_012: {
-    type: "PATIENT_SERVICE_FREQUENCY_ANOMALY",
-    titleFn: (_ref, _hospital) => `Patient service frequency anomaly`,
-    descFn: (ref, _hospital, exp) =>
-      `Claim ${ref}: patient service frequency exceeds expected pattern. ${exp}`,
-  },
-  R_013: {
-    type: "PATIENT_SPENDING_ANOMALY",
-    titleFn: (_ref, _hospital) => `Patient spending anomaly`,
-    descFn: (ref, _hospital, exp) =>
-      `Claim ${ref}: patient cumulative spending exceeds threshold. ${exp}`,
-  },
-  R_014: {
-    type: "DAILY_BILLING_LIMIT_EXCEEDED",
-    titleFn: (_ref, hospital) => `Daily billing limit exceeded: ${hospital}`,
-    descFn: (ref, hospital, exp) =>
-      `Claim ${ref} from ${hospital}: daily billing total exceeds policy limit. ${exp}`,
-  },
-  R_015: {
-    type: "MONTHLY_BILLING_LIMIT_EXCEEDED",
-    titleFn: (_ref, hospital) => `Monthly billing limit exceeded: ${hospital}`,
-    descFn: (ref, hospital, exp) =>
-      `Claim ${ref} from ${hospital}: monthly billing total exceeds policy limit. ${exp}`,
-  },
-  R_016: {
-    type: "FACILITY_SCOPE_BREACH",
-    titleFn: (_ref, hospital) => `Facility scope breach: ${hospital}`,
-    descFn: (ref, hospital, exp) =>
-      `Claim ${ref} from ${hospital}: service not allowed for this facility level. ${exp}`,
-  },
+// Maps a contextual signal name to the alert an officer should see.
+// Rule codes for contextual signals are derived from the signal itself, not
+// from the rule code a generic map would mislabel.
+const SIGNAL_TO_ALERT: Record<string, { type: AlertType; severity: FindingSeverity }> = {
+  EQUIPMENT_UNAVAILABLE: { type: "EQUIPMENT_UNAVAILABLE", severity: "HIGH" },
+  EQUIPMENT_CAPACITY_EXCEEDED: { type: "EQUIPMENT_CAPACITY_EXCEEDED", severity: "HIGH" },
+  SERVICE_CAPACITY_EXCEEDED: { type: "SERVICE_CAPACITY_EXCEEDED", severity: "HIGH" },
+  STAFF_CAPACITY_EXCEEDED: { type: "STAFF_CAPACITY_EXCEEDED", severity: "HIGH" },
+  TARIFF_EXCEEDED: { type: "TARIFF_EXCEEDED", severity: "MEDIUM" },
+  SERVICE_NOT_ACCREDITED: { type: "SERVICE_NOT_ACCREDITED", severity: "HIGH" },
+  PATIENT_SERVICE_FREQUENCY_ANOMALY: { type: "PATIENT_SERVICE_FREQUENCY_ANOMALY", severity: "MEDIUM" },
+  PATIENT_SPENDING_ANOMALY: { type: "PATIENT_SPENDING_ANOMALY", severity: "MEDIUM" },
+  DAILY_BILLING_LIMIT_EXCEEDED: { type: "DAILY_BILLING_LIMIT_EXCEEDED", severity: "HIGH" },
+  MONTHLY_BILLING_LIMIT_EXCEEDED: { type: "MONTHLY_BILLING_LIMIT_EXCEEDED", severity: "MEDIUM" },
+  ENCOUNTER_BILLING_LIMIT_EXCEEDED: { type: "ENCOUNTER_BILLING_LIMIT_EXCEEDED", severity: "MEDIUM" },
+  FACILITY_SCOPE_BREACH: { type: "FACILITY_SCOPE_BREACH", severity: "HIGH" },
 }
 
-const RULE_TO_ALERT_TYPE: Record<string, AlertType> = {
-  "R-003": "DUPLICATE_CLAIM",
-  "R-007": "CROSS_FACILITY_ANOMALY",
+function humanizeLabel(type: AlertType): string {
+  return type
+    .replace(/_/g, " ")
+    .toLowerCase()
+    .replace(/\b\w/g, (c) => c.toUpperCase())
+}
+
+type Explanation = Record<string, unknown> | unknown[]
+interface ServiceMatch {
+  serviceId: string
+  serviceCode: string
+  matchedClaims: Array<{
+    claimId: string
+    reference: string
+    hospitalName: string
+    facilityIdentifier: string
+    submittedAt: Date
+    daysBetween: number
+  }>
+}
+interface PeriodViolation {
+  serviceCode: string
+  maxClaims: number
+  periodDays: number
+  actualClaims: number
+}
+interface Signal {
+  signal: string
+  severity?: string
+  expected?: unknown
+  observed?: unknown
+  explanation?: string
+}
+
+function parseExplanation(explanation: string | null): Explanation {
+  try {
+    return JSON.parse(explanation ?? "{}") as Explanation
+  } catch {
+    return {}
+  }
+}
+
+function hasAlert(alerts: AlertInput[], type: AlertType, claimId: string): boolean {
+  return alerts.some((a) => a.type === type && a.claimId === claimId)
 }
 
 export async function generateAlerts(claimId: string) {
@@ -155,6 +148,9 @@ export async function generateAlerts(claimId: string) {
     const code = eval_.complianceRule.code
 
     if (code === "R-002") {
+      const parsed = parseExplanation(eval_.explanation)
+      const details =
+        parsed && !Array.isArray(parsed) ? (parsed as Record<string, unknown>) : {}
       alerts.push({
         type: "SERVICE_MISMATCH",
         severity: "HIGH",
@@ -166,70 +162,145 @@ export async function generateAlerts(claimId: string) {
         metadata: {
           ruleCode: "R-002",
           details: eval_.explanation,
+          missingServices: Array.isArray(details["missingServices"])
+            ? details["missingServices"]
+            : [],
+          hospitalServices: Array.isArray(details["hospitalServices"])
+            ? details["hospitalServices"]
+            : [],
         },
       })
     }
 
-    const ruleAlertType = RULE_TO_ALERT_TYPE[code]
-    if (ruleAlertType) {
-      const existingAlert = alerts.find(
-        (a) => a.type === ruleAlertType && a.claimId === claimId
-      )
-      if (!existingAlert) {
-        alerts.push({
-          type: ruleAlertType,
-          severity: eval_.scoreContribution >= 30 ? "CRITICAL" : "HIGH",
-          title: `${ruleAlertType.replace(/_/g, " ").toLowerCase()}: ${claim.reference}`,
-          description: `Claim ${claim.reference}: rule ${code} triggered with score ${eval_.scoreContribution}.`,
-          claimId,
-          hospitalId: claim.hospitalId,
-          source: "RULE",
-          metadata: {
-            ruleCode: code,
-            scoreContribution: eval_.scoreContribution,
-            explanation: eval_.explanation,
-          },
-        })
-      }
+    if (code === "R-003") {
+      if (hasAlert(alerts, "DUPLICATE_CLAIM", claimId)) continue
+      const parsed = parseExplanation(eval_.explanation)
+      const details =
+        parsed && !Array.isArray(parsed) ? (parsed as Record<string, unknown>) : {}
+      const duplicates = Array.isArray(details["matchedClaims"])
+        ? ((details["matchedClaims"] as Array<{ reference: string }>).map((c) => c.reference) ?? [])
+        : []
+      const count = typeof details["duplicateCount"] === "number" ? details["duplicateCount"] : duplicates.length
+
+      alerts.push({
+        type: "DUPLICATE_CLAIM",
+        severity: eval_.scoreContribution >= 30 ? "CRITICAL" : "HIGH",
+        title: `Duplicate claim: ${claim.reference}`,
+        description:
+          `Same patient billed for the same service(s) ${count} time(s) at ${claim.hospital.name} ` +
+          `within the review window${duplicates.length ? ` (matching claim(s): ${duplicates.join(", ")})` : ""}.`,
+        claimId,
+        hospitalId: claim.hospitalId,
+        source: "RULE",
+        metadata: {
+          ruleCode: "R-003",
+          scoreContribution: eval_.scoreContribution,
+          duplicateCount: count,
+          matchedClaims: details["matchedClaims"] ?? [],
+          explanation: eval_.explanation,
+        },
+      })
+    }
+
+    if (code === "R-007") {
+      const parsed = parseExplanation(eval_.explanation)
+
+      // Legacy/equipment form: explanation is a signals array → not a cross-facility finding
+      if (Array.isArray(parsed)) continue
+
+      const details = (parsed ?? {}) as Record<string, unknown>
+      const matches = Array.isArray(details["serviceSpecificMatches"])
+        ? (details["serviceSpecificMatches"] as ServiceMatch[])
+        : []
+      const periodViolations = Array.isArray(details["periodViolations"])
+        ? (details["periodViolations"] as PeriodViolation[])
+        : []
+
+      if (matches.length === 0 && periodViolations.length === 0) continue
+      if (hasAlert(alerts, "CROSS_FACILITY_ANOMALY", claimId)) continue
+
+      const patientIdentifier =
+        (details["patientIdentifier"] as string) ??
+        claim.patientReference ??
+        "unknown"
+      const identifierType =
+        details["identifierType"] === "patientId" ? "patient ID" : "patient reference"
+      const facilities = [
+        ...new Set(
+          matches.flatMap((m) =>
+            m.matchedClaims.map((mc) => mc.hospitalName)
+          )
+        ),
+      ]
+      const matchText = matches
+        .map(
+          (m) =>
+            `${m.serviceCode}: ${m.matchedClaims
+              .map(
+                (mc) =>
+                  `${mc.hospitalName} ${Math.round(mc.daysBetween)} day(s) ago (their claim ${mc.reference})`
+              )
+              .join("; ")}`
+        )
+        .join(". ")
+      const periodText =
+        periodViolations.length > 0
+          ? ` ${periodViolations.length} period limit(s) exceeded.`
+          : ""
+
+      alerts.push({
+        type: "CROSS_FACILITY_ANOMALY",
+        severity: eval_.scoreContribution >= 35 ? "CRITICAL" : "HIGH",
+        title: `Cross-facility billing: ${claim.reference}`,
+        description:
+          `Patient (${identifierType} ${patientIdentifier}) was billed for the same service(s) at ` +
+          `other facilities within the review window (${facilities.join(", ")}). ${matchText}${periodText}`,
+        claimId,
+        hospitalId: claim.hospitalId,
+        source: "RULE",
+        metadata: {
+          ruleCode: "R-007",
+          scoreContribution: eval_.scoreContribution,
+          patientIdentifier,
+          identifierType: details["identifierType"] ?? "patientReference",
+          serviceSpecificMatches: matches,
+          periodViolations,
+          explanation: eval_.explanation,
+        },
+      })
     }
   }
 
+  // Contextual rule evaluations: the explanation is a signals array. Emit one
+  // alert per signal, derived from the actual signal — not from rule code.
   for (const eval_ of claim.ruleEvaluations) {
-    const code = eval_.complianceRule.code.replace("-", "_")
-    const mapping = CONTEXTUAL_RULE_ALERT_MAP[code]
-    if (!mapping) continue
+    const parsed = parseExplanation(eval_.explanation)
+    if (!Array.isArray(parsed)) continue
 
-    const existing = alerts.find(
-      (a) => a.type === mapping.type && a.claimId === claimId
-    )
-    if (existing) continue
+    for (const signal of parsed as Signal[]) {
+      const mapping = SIGNAL_TO_ALERT[signal.signal]
+      if (!mapping) continue
+      if (hasAlert(alerts, mapping.type, claimId)) continue
 
-    let explanation = ""
-    try {
-      const parsed = JSON.parse(eval_.explanation ?? "{}")
-      if (Array.isArray(parsed)) {
-        explanation = parsed.map((s: { explanation?: string }) => s.explanation).join("; ")
-      } else if (parsed.note) {
-        explanation = parsed.note
-      }
-    } catch {
-      explanation = eval_.explanation ?? ""
+      alerts.push({
+        type: mapping.type,
+        severity: mapping.severity,
+        title: `${humanizeLabel(mapping.type)}: ${claim.reference}`,
+        description:
+          `Claim ${claim.reference} from ${claim.hospital.name}: ` +
+          (signal.explanation ?? eval_.explanation ?? signal.signal),
+        claimId,
+        hospitalId: claim.hospitalId,
+        source: "RULE",
+        metadata: {
+          ruleCode: eval_.complianceRule.code,
+          scoreContribution: eval_.scoreContribution,
+          signal: signal.signal,
+          signals: parsed,
+          explanation: eval_.explanation,
+        },
+      })
     }
-
-    alerts.push({
-      type: mapping.type,
-      severity: eval_.scoreContribution >= 25 ? "HIGH" : "MEDIUM",
-      title: mapping.titleFn(claim.reference, claim.hospital.name),
-      description: mapping.descFn(claim.reference, claim.hospital.name, explanation),
-      claimId,
-      hospitalId: claim.hospitalId,
-      source: "RULE",
-      metadata: {
-        ruleCode: eval_.complianceRule.code,
-        scoreContribution: eval_.scoreContribution,
-        explanation,
-      },
-    })
   }
 
   const ruleCoveredTypes = new Set<string>()
@@ -258,6 +329,7 @@ export async function generateAlerts(claimId: string) {
       metadata: {
         findingType: finding.type,
         confidence: finding.scoreContribution,
+        explanation: finding.explanation,
       },
     })
   }

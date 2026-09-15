@@ -20,9 +20,8 @@ export interface ContextualRuleResult {
 }
 
 const RULE_SCORES: Record<string, number> = {
-  R_007: 20,
-  R_008: 15,
-  R_009: 20,
+  R_008: 20,
+  R_009: 15,
   R_010: 15,
   R_011: 25,
   R_012: 20,
@@ -82,19 +81,23 @@ export async function evaluateContextualRules(
       )
       if (equipmentSignals.length > 0) {
         const hasHighSeverity = equipmentSignals.some(s => s.severity === "HIGH" || s.severity === "CRITICAL")
-        results.push({
-          ruleCode: "R_007",
-          triggered: hasHighSeverity,
-          scoreImpact: hasHighSeverity ? RULE_SCORES["R_007"] : 0,
-          signals: equipmentSignals,
-        })
+        const unavailable = equipmentSignals.some(s => s.signal === "EQUIPMENT_UNAVAILABLE")
+
+        if (unavailable) {
+          results.push({
+            ruleCode: "R_008",
+            triggered: hasHighSeverity,
+            scoreImpact: hasHighSeverity ? RULE_SCORES["R_008"] : 0,
+            signals: equipmentSignals,
+          })
+        }
 
         const capacityExceeded = equipmentSignals.some(s => s.signal === "EQUIPMENT_CAPACITY_EXCEEDED")
         if (capacityExceeded) {
           results.push({
-            ruleCode: "R_008",
+            ruleCode: "R_009",
             triggered: true,
-            scoreImpact: RULE_SCORES["R_008"],
+            scoreImpact: RULE_SCORES["R_009"],
             signals: equipmentSignals.filter(s => s.signal === "EQUIPMENT_CAPACITY_EXCEEDED"),
           })
         }
